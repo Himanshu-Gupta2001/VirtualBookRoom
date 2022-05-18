@@ -18,10 +18,37 @@
 </head>
 
 <body>
+<?php
+ $emailmsg="";
+ $pasdmsg="";
+ $msg="";
 
-    <h2>
-        hemant bhai
-    </h2>
+ $ademailmsg="";
+ $adpasdmsg="";
+
+
+ if(!empty($_REQUEST['ademailmsg'])){
+    $ademailmsg=$_REQUEST['ademailmsg'];
+ }
+
+ if(!empty($_REQUEST['adpasdmsg'])){
+    $adpasdmsg=$_REQUEST['adpasdmsg'];
+ }
+
+ if(!empty($_REQUEST['emailmsg'])){
+    $emailmsg=$_REQUEST['emailmsg'];
+ }
+
+ if(!empty($_REQUEST['pasdmsg'])){
+  $pasdmsg=$_REQUEST['pasdmsg'];
+}
+
+if(!empty($_REQUEST['msg'])){
+    $msg=$_REQUEST['msg'];
+ }
+
+ ?>
+    
 </body>
 
 </html>
