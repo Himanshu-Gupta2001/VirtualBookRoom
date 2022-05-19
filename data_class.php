@@ -15,7 +15,7 @@ class data extends db {
         if ($result > 0) {
 
             foreach($recordSet->fetchAll()as$row){
-                $logid-$row['id'];
+                $logid=$row['id'];
                 $_SESSION["adminid"]=$logid;
                 header("location: admin_service_dashboard.php");
             }
