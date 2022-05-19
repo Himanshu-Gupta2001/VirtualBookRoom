@@ -18,7 +18,7 @@
 </head>
 
 <body>
-<?php
+    <?php
  $emailmsg="";
  $pasdmsg="";
  $msg="";
@@ -48,8 +48,6 @@ if(!empty($_REQUEST['msg'])){
  }
 
  ?>
-
-
 
     <div class="container login-container">
         <div class="row">
@@ -99,16 +97,6 @@ if(!empty($_REQUEST['msg'])){
             </div>
         </div>
     </div>
-
-
-
-
-
-
-
-
-
-
 
     <script src="" async defer></script>
 </body>
