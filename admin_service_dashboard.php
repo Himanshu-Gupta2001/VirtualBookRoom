@@ -81,7 +81,7 @@ a {
                 <Button class="greenbtn" onclick="openpart('addbook')">ADD BOOK</Button>
                 <Button class="greenbtn" onclick="openpart('bookreport')"> BOOK REPORT</Button>
                 <Button class="greenbtn" onclick="openpart('bookrequestapprove')"> BOOK REQUESTS</Button>
-                <Button class="greenbtn" onclick="openpart('addperson')"> ADD STUDENT</Button>
+                <Button class="greenbtn" onclick="openpart('addperson')"> ADD USER</Button>
                 <Button class="greenbtn" onclick="openpart('studentrecord')"> STUDENT REPORT</Button>
                 <Button class="greenbtn" onclick="openpart('issuebook')"> ISSUE BOOK</Button>
                 <Button class="greenbtn" onclick="openpart('issuebookreport')"> ISSUE REPORT</Button>
