@@ -15,100 +15,161 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
 <!--[if IE 8]>         <html class="no-js lt-ie9"> <![endif]-->
 <!--[if gt IE 8]>      <html class="no-js"> <![endif]-->
 <html>
-    <head>
+
+<head>
+
     <head>
         <meta charset="utf-8">
         <meta http-equiv="X-UA-Compatible" content="IE=edge">
         <title>Admin Dashboard</title>
         <meta name="description" content="">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <link href="//maxcdn.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" rel="stylesheet" id="bootstrap-css">
-      <script src="//maxcdn.bootstrapcdn.com/bootstrap/4.1.1/js/bootstrap.min.js"></script>
-      <script src="//cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+        <link href="//maxcdn.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" rel="stylesheet"
+            id="bootstrap-css">
+        <script src="//maxcdn.bootstrapcdn.com/bootstrap/4.1.1/js/bootstrap.min.js"></script>
+        <script src="//cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
         <!-- <link rel="stylesheet" href="style.css"> -->
     </head>
     <style>
-            .innerright,label {
-    color: rgb(16, 170, 16);
-    font-weight:bold;
-}
-.container,
-.row,
-.imglogo {
-    margin:auto;
-}
+    body {
+        margin: 0px;
+        background-image: url('images/bookimage.jpg');
+        background-repeat: no-repeat;
+        background-size: auto;
+    }
 
-.innerdiv {
-    text-align: center;
-    /* width: 500px; */
-    margin: 100px;
-}
-input{
-    margin-left:20px;
-}
-.leftinnerdiv {
-    float: left;
-    width: 25%;
-}
+    .innerright,
+    label {
+        color: white;
+        font-weight: bold;
+    }
 
-.rightinnerdiv {
-    float: right;
-    width: 75%;
-}
+    .container,
+    .row,
+    .imglogo {
+        margin: auto;
+    }
 
-.innerright {
-    background-color: rgb(105, 221, 105);
-}
+    .innerdiv {
+        text-align: center;
+        margin: 15px;
+        margin-left: 100px;
+    }
 
-.greenbtn {
-    background-color: rgb(16, 170, 16);
-    color: white;
-    width: 95%;
-    height: 40px;
-    margin-top: 8px;
-}
+    .leftinnerdiv {
+        background-color: transparent;
+        border-radius: 20px;
+        border: 1px solid white;
+        padding: 10px;
+        float: left;
+        width: 25%;
+    }
 
-.greenbtn,
-a {
-    text-decoration: none;
-    color: white;
-    font-size: large;
-}
+    .leftinnerdiv:hover {
+        padding: 15px;
+        transition: padding 0.8s ease;
+        border: 3px solid #66bfbf;
+        font-size: 2rem;
+    }
 
-th{
-    background-color: orange;
-    color: black;
-}
-td{
-    background-color: #fed8b1;
-    color: black;
-}
-td, a{
-    color:black;
-}
+    .rightinnerdiv {
+        float: left;
+        width: 55%;
+        border-radius: 10px;
+    }
+
+    .innerright {
+        background-color: transparent;
+        border-radius: 10px;
+        margin-left: 10px;
+    }
+
+    .greenbtn {
+        background-color: gray;
+        border-radius: 10px;
+        color: white;
+        width: 95%;
+        height: 40px;
+        margin-top: 10px;
+        border: 1px solid #66bfbf;
+    }
+
+    .greenbtn:hover {
+        background-color: white;
+        border-radius: 20px;
+        color: black;
+        border: 3px solid #66bfbf;
+        transition: border-radius 0.4s ease;
+    }
+
+    .greenbtn,
+    a {
+        text-decoration: none;
+        color: white;
+        font-size: large;
+    }
+
+    th {
+        background-color: transparent;
+        color: yellow;
+        padding: 20px;
+        border: 1px solid white;
+    }
+
+    td {
+        background-color: transparent;
+        padding: 20px;
+        border: 1px solid white;
+    }
+
+    td:hover {
+        background-color: #66bfbf;
+        color: white;
+    }
+
+    td,
+    a {
+        color: yellow;
+    }
+
+    .imglogo {
+        margin-bottom: 10px;
+        opacity: 0.8;
+        height: 8rem;
+        width: 80%;
+        border-radius: 20px;
+        border: 5px solid white;
+    }
+
+    .imglogo:hover {
+        opacity: 1;
+        border-radius: 10rem;
+        transition: border-radius 1s ease;
+    }
     </style>
-    <body>
+
+<body>
 
     <?php
    include("data_class.php");
     ?>
-           <div class="container">
-            <div class="innerdiv">
-            <div class="row"><img class="imglogo" src="images/logo.png"/></div>
+    <div class="container">
+        <div class="innerdiv">
             <div class="leftinnerdiv">
-                <Button class="greenbtn" >Welcome</Button>
+                <Button class="greenbtn">Welcome</Button>
                 <Button class="greenbtn" onclick="openpart('myaccount')"> My Account</Button>
                 <Button class="greenbtn" onclick="openpart('requestbook')"> Request Book</Button>
                 <Button class="greenbtn" onclick="openpart('issuereport')"> Book Report</Button>
-                <a href="index.php"><Button class="greenbtn" > LOGOUT</Button></a>
+                <a href="index.php"><Button class="greenbtn"> LOGOUT</Button></a>
             </div>
 
 
-            <div class="rightinnerdiv">   
-            <div id="myaccount" class="innerright portion" style="<?php  if(!empty($_REQUEST['returnid'])){ echo "display:none";} else {echo ""; }?>">
-            <Button class="greenbtn" >My Account</Button>
+            <div class="rightinnerdiv">
+                <div id="myaccount" class="innerright portion"
+                    style="<?php  if(!empty($_REQUEST['returnid'])){ echo "display:none";} else {echo ""; }?>">
+                    <Button class="greenbtn">My Account</Button>
 
-            <?php
+                    <?php
 
             $u=new data;
             $u->setconnection();
@@ -124,23 +185,24 @@ td, a{
             }               
                 ?>
 
-            <p style="color:black"><u>Person Name:</u> &nbsp&nbsp<?php echo $name ?></p>
-            <p style="color:black"><u>Person Email:</u> &nbsp&nbsp<?php echo $email ?></p>
-            <p style="color:black"><u>Account Type:</u> &nbsp&nbsp<?php echo $type ?></p>
-        
+                    <p style="color:black"><u>Person Name:</u> &nbsp&nbsp<?php echo $name ?></p>
+                    <p style="color:black"><u>Person Email:</u> &nbsp&nbsp<?php echo $email ?></p>
+                    <p style="color:black"><u>Account Type:</u> &nbsp&nbsp<?php echo $type ?></p>
+
+                </div>
             </div>
-            </div>
-
-
-            
 
 
 
-            <div class="rightinnerdiv">   
-            <div id="issuereport" class="innerright portion" style="<?php  if(!empty($_REQUEST['returnid'])){ echo "display:none";} else {echo "display:none"; }?>">
-            <Button class="greenbtn" >ISSUE RECORD</Button>
 
-            <?php
+
+
+            <div class="rightinnerdiv">
+                <div id="issuereport" class="innerright portion"
+                    style="<?php  if(!empty($_REQUEST['returnid'])){ echo "display:none";} else {echo "display:none"; }?>">
+                    <Button class="greenbtn">ISSUE RECORD</Button>
+
+                    <?php
 
             $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
             $u=new data;
@@ -168,15 +230,16 @@ td, a{
             echo $table;
             ?>
 
+                </div>
             </div>
-            </div>
 
 
-            <div class="rightinnerdiv">   
-            <div id="return" class="innerright portion" style="<?php  if(!empty($_REQUEST['returnid'])){ $returnid=$_REQUEST['returnid'];} else {echo "display:none"; }?>">
-            <Button class="greenbtn" >Return Book</Button>
+            <div class="rightinnerdiv">
+                <div id="return" class="innerright portion"
+                    style="<?php  if(!empty($_REQUEST['returnid'])){ $returnid=$_REQUEST['returnid'];} else {echo "display:none"; }?>">
+                    <Button class="greenbtn">Return Book</Button>
 
-            <?php
+                    <?php
 
             $u=new data;
             $u->setconnection();
@@ -184,15 +247,16 @@ td, a{
             $recordset=$u->returnbook($returnid);
                 ?>
 
+                </div>
             </div>
-            </div>
 
 
-            <div class="rightinnerdiv">   
-            <div id="requestbook" class="innerright portion" style="<?php  if(!empty($_REQUEST['returnid'])){ $returnid=$_REQUEST['returnid'];echo "display:none";} else {echo "display:none"; }?>">
-            <Button class="greenbtn" >Request Book</Button>
+            <div class="rightinnerdiv">
+                <div id="requestbook" class="innerright portion"
+                    style="<?php  if(!empty($_REQUEST['returnid'])){ $returnid=$_REQUEST['returnid'];echo "display:none";} else {echo "display:none"; }?>">
+                    <Button class="greenbtn">Request Book</Button>
 
-            <?php
+                    <?php
             $u=new data;
             $u->setconnection();
             $u->getbookissue();
@@ -221,26 +285,23 @@ td, a{
 
                 ?>
 
-            </div>
+                </div>
             </div>
 
         </div>
-        </div>
+    </div>
 
 
-        <script>
-        function openpart(portion) {
+    <script>
+    function openpart(portion) {
         var i;
         var x = document.getElementsByClassName("portion");
         for (i = 0; i < x.length; i++) {
-            x[i].style.display = "none";  
+            x[i].style.display = "none";
         }
-        document.getElementById(portion).style.display = "block";  
-        }
+        document.getElementById(portion).style.display = "block";
+    }
+    </script>
+</body>
 
-   
- 
-        
-        </script>
-    </body>
 </html>
