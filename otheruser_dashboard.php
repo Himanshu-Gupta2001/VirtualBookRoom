@@ -84,6 +84,25 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
         margin-left: 10px;
     }
 
+    .topbutton {
+        background-color: gray;
+        border-radius: 10px;
+        color: white;
+        width: 100%;
+        height: 40px;
+        margin-top: 10px;
+        margin-left: 60px;
+        border: 1px solid #66bfbf;
+    }
+
+    .topbutton:hover {
+        background-color: white;
+        border-radius: 20px;
+        color: black;
+        border: 3px solid #66bfbf;
+        transition: border-radius 0.4s ease;
+    }
+
     .greenbtn {
         background-color: gray;
         border-radius: 10px;
@@ -111,7 +130,7 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
 
     th {
         background-color: transparent;
-        color: yellow;
+        color: #F9CEEE;
         padding: 20px;
         border: 1px solid white;
     }
@@ -127,9 +146,9 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
         color: white;
     }
 
-    td,
-    a {
-        color: yellow;
+    td a {
+        color: #F9CEEE;
+        color: white;
     }
 
     .imglogo {
@@ -167,7 +186,7 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
             <div class="rightinnerdiv">
                 <div id="myaccount" class="innerright portion"
                     style="<?php  if(!empty($_REQUEST['returnid'])){ echo "display:none";} else {echo ""; }?>">
-                    <Button class="greenbtn">My Account</Button>
+                    <Button class="topbutton">My Account</Button>
 
                     <?php
 
@@ -200,7 +219,7 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
             <div class="rightinnerdiv">
                 <div id="issuereport" class="innerright portion"
                     style="<?php  if(!empty($_REQUEST['returnid'])){ echo "display:none";} else {echo "display:none"; }?>">
-                    <Button class="greenbtn">ISSUE RECORD</Button>
+                    <Button class="topbutton">ISSUE RECORD</Button>
 
                     <?php
 
@@ -237,7 +256,7 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
             <div class="rightinnerdiv">
                 <div id="return" class="innerright portion"
                     style="<?php  if(!empty($_REQUEST['returnid'])){ $returnid=$_REQUEST['returnid'];} else {echo "display:none"; }?>">
-                    <Button class="greenbtn">Return Book</Button>
+                    <Button class="topbutton">Return Book</Button>
 
                     <?php
 
@@ -254,7 +273,7 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
             <div class="rightinnerdiv">
                 <div id="requestbook" class="innerright portion"
                     style="<?php  if(!empty($_REQUEST['returnid'])){ $returnid=$_REQUEST['returnid'];echo "display:none";} else {echo "display:none"; }?>">
-                    <Button class="greenbtn">Request Book</Button>
+                    <Button class="topbutton">Request Book</Button>
 
                     <?php
             $u=new data;

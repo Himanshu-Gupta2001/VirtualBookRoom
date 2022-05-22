@@ -69,9 +69,6 @@ if(!empty($_REQUEST['msg'])){
                     <div class="form-group">
                         <input type="submit" class="btnSubmit" value="Login" />
                     </div>
-                    <div class="form-group">
-                        <a href="#" class="ForgetPwd" value="Login">Forget Password?</a>
-                    </div>
                 </form>
             </div>
             <div class="col-md-6 login-form-2">
@@ -88,9 +85,6 @@ if(!empty($_REQUEST['msg'])){
                     <Label style="color:red"><?php echo $adpasdmsg ?></label>
                     <div class="form-group">
                         <input type="submit" class="btnSubmit" value="Login" />
-                    </div>
-                    <div class="form-group">
-                        <a href="#" class="ForgetPwd" value="Login">Forget Password?</a>
                     </div>
                 </form>
             </div>

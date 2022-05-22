@@ -19,9 +19,6 @@ class data extends db {
     private $returnDate;
 
 
-
-
-
     function __construct() {
         // echo " constructor ";
         echo "</br></br>";
