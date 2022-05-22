@@ -15,6 +15,7 @@ if($login_email==null||$login_pasword==null){
     if($login_pasword==null){
         $pasdmsg="Pasword Empty";
     }
+
     header("Location: index.php?ademailmsg=$emailmsg&adpasdmsg=$pasdmsg");
 }
 
@@ -24,3 +25,7 @@ elseif($login_email!=null&&$login_pasword!=null){
     $obj->adminLogin($login_email,$login_pasword);
 
 }
+
+
+
+
