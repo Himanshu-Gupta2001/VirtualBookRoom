@@ -182,8 +182,8 @@ label {
                 <Button class="greenbtn" onclick="openpart('addbook')">ADD BOOK</Button>
                 <Button class="greenbtn" onclick="openpart('bookreport')"> BOOK REPORT</Button>
                 <Button class="greenbtn" onclick="openpart('bookrequestapprove')"> BOOK REQUESTS</Button>
-                <Button class="greenbtn" onclick="openpart('addperson')"> ADD STUDENT</Button>
-                <Button class="greenbtn" onclick="openpart('studentrecord')"> STUDENT REPORT</Button>
+                <Button class="greenbtn" onclick="openpart('addperson')"> ADD USER</Button>
+                <Button class="greenbtn" onclick="openpart('studentrecord')"> USER REPORT</Button>
                 <Button class="greenbtn" onclick="openpart('issuebook')"> ISSUE BOOK</Button>
                 <Button class="greenbtn" onclick="openpart('issuebookreport')"> ISSUE REPORT</Button>
                 <a href="index.php"><Button class="greenbtn"> LOGOUT</Button></a>
@@ -261,7 +261,7 @@ label {
 
             <div class="rightinnerdiv">
                 <div id="addperson" class="innerright portion" style="display:none">
-                    <Button class="greenbtn">ADD Person</Button>
+                    <Button class="greenbtn">ADD PERSON</Button>
                     <form action="addpersonserver_page.php" method="post" enctype="multipart/form-data">
                         <label>Name:</label><input type="text" name="addname" />
                         </br>
@@ -281,7 +281,7 @@ label {
 
             <div class="rightinnerdiv">
                 <div id="studentrecord" class="innerright portion" style="display:none">
-                    <Button class="greenbtn">Student RECORD</Button>
+                    <Button class="greenbtn">USER RECORD</Button>
                     <?php
                     $u = new data;
                     $u->setconnection();
