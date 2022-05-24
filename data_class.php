@@ -282,9 +282,7 @@ class data extends db {
 
     function delteuserdata($id){
         $q="DELETE from userdata where id='$id'";
-        if($this->connection->exec($q)){
-    
-            
+        if($this->connection->exec($q)){          
            header("Location:admin_service_dashboard.php?msg=done");
         }
         else{
