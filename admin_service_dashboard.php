@@ -347,7 +347,7 @@ label {
                         $table .= "<td>$row[7]</td>";
                         $table .= "<td>$row[8]</td>";
                         $table .= "<td>$row[4]</td>";
-                        $table.="<td><a href='otheruser_dashboard.php?returnid=$row[0]&userlogid=$userloginid'>Return</a></td>";
+                        //$table.="<td><a href='otheruser_dashboard.php?returnid=$row[0]&userlogid=$userloginid'>Return</a></td>";
                         $table .= "</tr>";
                         // $table.=$row[0];
                     }
@@ -378,7 +378,7 @@ label {
                             ?>
                         </select>
 
-                        <label for="Select Student">:</label>
+                        <label for="Select Student"></label>
                         <select name="userselect">
                             <?php
                             $u = new data;
