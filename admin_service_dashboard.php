@@ -218,7 +218,7 @@ label {
                     $recordset = $u->requestbookdata();
 
                     $table = "<table style='font-family: Arial, Helvetica, sans-serif;border-collapse: collapse;width: 100%;'><tr><th style='  border: 1px solid #ddd;
-            padding: 8px;'>Person Name</th><th>person type</th><th>Book name</th><th>Days </th><th>Approve</th></tr>";
+            padding: 8px;'>Person Name</th><th>person type</th><th>Book name</th><th>Days </th><th>Approve</th> <th>Remove</th></tr>";
                     foreach ($recordset as $row) {
                         $table .= "<tr>";
                         "<td>$row[0]</td>";
@@ -230,8 +230,8 @@ label {
                         $table .= "<td>$row[5]</td>";
                         $table .= "<td>$row[6]</td>";
                         // $table.="<td><a href='approvebookrequest.php?reqid=$row[0]&book=$row[5]&userselect=$row[3]&days=$row[6]'><button type='button' class='btn btn-primary'>Approved BOOK</button></a></td>";
-                        $table .= "<td><a href='approvebookrequest.php?reqid=$row[0]&book=$row[5]&userselect=$row[3]&days=$row[6]'>Approved</a></td>";
-                        $table.="<td><a href='deleteuser_request.php?deletebookid=$row[0]'>Delete</a></td>";
+                        $table .= "<td><a href='approvebookrequest.php?reqid=$row[0]&book=$row[5]&userselect=$row[3]&days=$row[6]'><button type='button' class='btn btn-primary'>Approved</button></a></td>";
+                        $table.="<td><a href='deleteuser_request.php?deletebookid=$row[0]'><button type='button' class='btn btn-primary'>Delete</button></a></td>";
                         $table .= "</tr>";
                         // $table.=$row[0];
                     }

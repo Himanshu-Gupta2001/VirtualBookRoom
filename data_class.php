@@ -305,7 +305,7 @@ class data extends db {
     }
 
     function deleterequestbook($id){
-        $q="DELETE from book where id='$id'";
+        $q="DELETE from requestbook where id='$id'";
         if($this->connection->exec($q)){
     
             
