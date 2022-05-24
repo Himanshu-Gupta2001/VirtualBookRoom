@@ -314,7 +314,7 @@ label {
                         $table .= "<td>$row[1]</td>";
                         $table .= "<td>$row[2]</td>";
                         $table .= "<td>$row[4]</td>";
-                        $table.="<td><a href='deleteuser.php?useriddelete=$row[0]'>Delete</a></td>";
+                        $table.="<td><a href='deleteuser.php?useriddelete=$row[0]'><button type='button' class='btn btn-primary'>Delete</button></a></td>";
                         $table .= "</tr>";
                         // $table.=$row[0];
                     }
