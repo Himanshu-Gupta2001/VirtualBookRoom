@@ -298,6 +298,17 @@ class data extends db {
         }
     }
 
+    function deleterequestbook($id){
+        $q="DELETE from requestbook where id='$id'";
+        if($this->connection->exec($q)){
+    
+            
+           header("Location:admin_service_dashboard.php?msg=done");
+        }
+        else{
+           header("Location:admin_service_dashboard.php?msg=fail");
+        }
+    }
         function issuereport(){
             $q="SELECT * FROM issuebook ";
             $data=$this->connection->query($q);

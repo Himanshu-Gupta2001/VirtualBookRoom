@@ -231,7 +231,7 @@ label {
                         $table .= "<td>$row[6]</td>";
                         // $table.="<td><a href='approvebookrequest.php?reqid=$row[0]&book=$row[5]&userselect=$row[3]&days=$row[6]'><button type='button' class='btn btn-primary'>Approved BOOK</button></a></td>";
                         $table .= "<td><a href='approvebookrequest.php?reqid=$row[0]&book=$row[5]&userselect=$row[3]&days=$row[6]'>Approved</a></td>";
-                        // $table.="<td><a href='deletebook_dashboard.php?deletebookid=$row[0]'>Delete</a></td>";
+                        $table.="<td><a href='deleteuser_request.php?deletebookid=$row[0]'>Delete</a></td>";
                         $table .= "</tr>";
                         // $table.=$row[0];
                     }
@@ -307,14 +307,14 @@ label {
                     $recordset = $u->userdata();
 
                     $table = "<table style='font-family: Arial, Helvetica, sans-serif;border-collapse: collapse;width: 100%;'><tr><th style='  border: 1px solid #ddd;
-                    padding: 8px;'> Name</th><th>Email</th><th>Type</th></tr>";
+                    padding: 8px;'> Name</th><th>Email</th><th>Type</th><th>Remove</th></tr>";
                     foreach ($recordset as $row) {
                         $table .= "<tr>";
                         "<td>$row[0]</td>";
                         $table .= "<td>$row[1]</td>";
                         $table .= "<td>$row[2]</td>";
                         $table .= "<td>$row[4]</td>";
-                        // $table.="<td><a href='deleteuser.php?useriddelete=$row[0]'>Delete</a></td>";
+                        $table.="<td><a href='deleteuser.php?useriddelete=$row[0]'>Delete</a></td>";
                         $table .= "</tr>";
                         // $table.=$row[0];
                     }
@@ -347,7 +347,7 @@ label {
                         $table .= "<td>$row[7]</td>";
                         $table .= "<td>$row[8]</td>";
                         $table .= "<td>$row[4]</td>";
-                        // $table.="<td><a href='otheruser_dashboard.php?returnid=$row[0]&userlogid=$userloginid'>Return</a></td>";
+                        $table.="<td><a href='otheruser_dashboard.php?returnid=$row[0]&userlogid=$userloginid'>Return</a></td>";
                         $table .= "</tr>";
                         // $table.=$row[0];
                     }
@@ -457,7 +457,7 @@ label {
                     $recordset = $u->getbook();
 
                     $table = "<table style='font-family: Arial, Helvetica, sans-serif;border-collapse: collapse;width: 100%;'><tr><th style='  border: 1px solid #ddd;
-            padding: 8px;'>Book Name</th><th>Price</th><th>Qnt</th><th>Available</th><th>Rent</th></th><th>View</th></tr>";
+            padding: 8px;'>Book Name</th><th>Price</th><th>Qnt</th><th>Available</th><th>Rent</th></th><th>View</th><th>Delete</th></tr>";
                     foreach ($recordset as $row) {
                         $table .= "<tr>";
                         "<td>$row[0]</td>";
@@ -467,7 +467,7 @@ label {
                         $table .= "<td>$row[9]</td>";
                         $table .= "<td>$row[10]</td>";
                         $table .= "<td><a href='admin_service_dashboard.php?viewid=$row[0]'><button type='button' class='btn btn-primary'>View BOOK</button></a></td>";
-                        // $table.="<td><a href='deletebook_dashboard.php?deletebookid=$row[0]'>Delete</a></td>";
+                        $table.="<td><a href='deletebook_dashboard.php?deletebookid=$row[0]'><button type='button' class='btn btn-primary'>Delete BOOK</button></a></td>";
                         $table .= "</tr>";
                         // $table.=$row[0];
                     }

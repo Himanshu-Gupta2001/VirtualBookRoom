@@ -1,11 +1,11 @@
 <?php
 include("data_class.php");
 
-$delteuser=$_GET['useriddelete'];
+$deletebookid=$_GET['deletebookid'];
 
 
 $obj=new data();
 $obj->setconnection();
-$obj->delteuserdata($delteuser);
+$obj->deleterequestbook($deletebookid);
 
 ?>

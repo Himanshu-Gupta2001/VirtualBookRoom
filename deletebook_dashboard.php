@@ -7,3 +7,5 @@ $deletebookid=$_GET['deletebookid'];
 $obj=new data();
 $obj->setconnection();
 $obj->deletebook($deletebookid);
+
+?>
