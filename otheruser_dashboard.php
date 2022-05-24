@@ -78,6 +78,15 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
         border-radius: 10px;
     }
 
+    .rightinnerdiv p {
+        margin-left: 9rem;
+        width: 20rem;
+        color: black;
+        border-radius: 8px;
+        border: 1px solid #57bfda;
+
+    }
+
     .innerright {
         background-color: transparent;
         border-radius: 10px;
@@ -91,7 +100,7 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
         width: 100%;
         height: 40px;
         margin-top: 10px;
-        margin-left: 60px;
+        margin-left: 10px;
         border: 1px solid #66bfbf;
     }
 
@@ -175,7 +184,6 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
     <div class="container">
         <div class="innerdiv">
             <div class="leftinnerdiv">
-                <Button class="greenbtn">Welcome</Button>
                 <Button class="greenbtn" onclick="openpart('myaccount')"> My Account</Button>
                 <Button class="greenbtn" onclick="openpart('requestbook')"> Request Book</Button>
                 <Button class="greenbtn" onclick="openpart('issuereport')"> Book Report</Button>
@@ -204,9 +212,10 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
             }               
                 ?>
 
-                    <p style="color:black"><u>Person Name:</u> &nbsp&nbsp<?php echo $name ?></p>
-                    <p style="color:black"><u>Person Email:</u> &nbsp&nbsp<?php echo $email ?></p>
-                    <p style="color:black"><u>Account Type:</u> &nbsp&nbsp<?php echo $type ?></p>
+                    <p><u>Person Name:</u> &nbsp&nbsp<?php echo $name ?></p>
+                    <p><u>Person Email:</u> &nbsp&nbsp<?php echo $email ?>
+                    </p>
+                    <p><u>Account Type:</u> &nbsp&nbsp<?php echo $type ?></p>
 
                 </div>
             </div>

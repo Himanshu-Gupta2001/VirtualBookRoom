@@ -90,11 +90,30 @@ input {
     margin-top: 20px;
 }
 
+.sidebtn {
+    background-color: gray;
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+    border-color: #66BFBF;
+    width: 95%;
+    height: 40px;
+    margin-top: 20px;
+}
+
 .greenbtn:hover {
+    cursor: pointer;
     background-color: #57b5da;
     border-radius: 30px;
     border: 3px dashed gray;
     transition: border-radius 0.8s ease;
+}
+
+.sidebtn :hover {
+    background-color: #57b5da;
+    border-radius: 30px;
+    border: 3px dashed gray;
+    transition: border-radius 0.8s ease;
+
 }
 
 .greenbtn,
@@ -191,7 +210,7 @@ label {
 
             <div class="rightinnerdiv">
                 <div id="bookrequestapprove" class="innerright portion" style="display:none">
-                    <Button class="greenbtn">BOOK REQUEST APPROVE</Button>
+                    <Button class="sidebtn">BOOK REQUEST APPROVE</Button>
 
                     <?php
                     $u = new data;
@@ -479,5 +498,7 @@ label {
     }
     </script>
 </body>
+
+</html>
 
 </html>
