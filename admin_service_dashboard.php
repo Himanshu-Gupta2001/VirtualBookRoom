@@ -197,7 +197,6 @@ label {
         <div class="innerdiv">
             <div class="row"><img class="imglogo" src="images/virtualbookroomyellow.png" /></div>
             <div class="leftinnerdiv">
-                <Button class="greenbtn"> ADMIN</Button>
                 <Button class="greenbtn" onclick="openpart('addbook')">ADD BOOK</Button>
                 <Button class="greenbtn" onclick="openpart('bookreport')"> BOOK REPORT</Button>
                 <Button class="greenbtn" onclick="openpart('bookrequestapprove')"> BOOK REQUESTS</Button>
@@ -252,20 +251,20 @@ label {
                                                                     } ?>">
                     <Button class="greenbtn">ADD NEW BOOK</Button>
                     <form action="addbookserver_page.php" method="post" enctype="multipart/form-data">
-                        <label>Book Name:</label><input type="text" name="bookname" />
+                        <label>Book Name:</label><input type="text" name="bookname" required/>
                         </br>
-                        <label>Detail:</label><input type="text" name="bookdetail" /></br>
-                        <label>Autor:</label><input type="text" name="bookaudor" /></br>
-                        <label>Publication</label><input type="text" name="bookpub" /></br>
+                        <label>Detail:</label><input type="text" name="bookdetail" required/></br>
+                        <label>Autor:</label><input type="text" name="bookaudor" required/></br>
+                        <label>Publication</label><input type="text" name="bookpub" required/></br>
                         <div id="branchid">Branch:<input type="radio" name="branch" value="other" />OTHER<input
                                 type="radio" name="branch" value="BSIT" />B.TECH<div style="margin-left:80px"><input
                                     type="radio" name="branch" value="BSCS" />B.COM<input type="radio" name="branch"
                                     value="BSSE" />BPharma
                             </div>
                         </div>
-                        <label>Price:</label><input type="number" name="bookprice" /></br>
-                        <label>Quantity:</label><input type="number" name="bookquantity" /></br>
-                        <label>Book Photo</label><input type="file" name="bookphoto" /></br>
+                        <label>Price:</label><input type="number" name="bookprice" required/></br>
+                        <label>Quantity:</label><input type="number" name="bookquantity" required/></br>
+                        <label>Book Photo</label><input type="file" accept = "image/apng, image/avif, image/gif, image/jpeg, image/png, image/svg+xml, image/webp" name="bookphoto" required/></br>
                         </br>
 
                         <input class="greenbtn" type="submit" value="SUBMIT" />
