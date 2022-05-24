@@ -260,8 +260,14 @@ class data extends db {
 
         $q="DELETE from issuebook where id=$id and issuebook='$issuebook' and fine='0' ";
         if($this->connection->exec($q)){
-    
-            header("Location:otheruser_dashboard.php?userlogid=$userid");
+    ?>
+    <html>
+            <body>
+                <h2 style='color:green'>Book Return Successfully</h2>
+            </body>
+    </html>
+            
+    <?php
          }
         //  else{
         //     header("Location:otheruser_dashboard.php?msg=fail");
@@ -299,7 +305,7 @@ class data extends db {
     }
 
     function deleterequestbook($id){
-        $q="DELETE from requestbook where id='$id'";
+        $q="DELETE from book where id='$id'";
         if($this->connection->exec($q)){
     
             

@@ -21,7 +21,7 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
     <head>
         <meta charset="utf-8">
         <meta http-equiv="X-UA-Compatible" content="IE=edge">
-        <title>Admin Dashboard</title>
+        <title>User Dashboard</title>
         <meta name="description" content="">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <link href="//maxcdn.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" rel="stylesheet"
@@ -175,7 +175,7 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
         transition: border-radius 1s ease;
     }
     </style>
-
+ 
 <body>
 
     <?php
