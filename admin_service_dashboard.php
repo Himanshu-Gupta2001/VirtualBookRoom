@@ -270,12 +270,12 @@ label {
                             required /></br>
                         <div id="branchid"><label>Branch:</label>
                             <div style="margin-left:-110px; display:inline"><input type="radio" name="branch"
-                                    value="other" />OTHER
-                                &nbsp<input type="radio" name="branch" value="BSIT" />B.TECH
+                                    value="B.TECH" />B.TECH
+                                &nbsp<input type="radio" name="branch" value="BCA" />BCA
                             </div>
                             <div style="margin-left:170px">
-                                <input type="radio" name="branch" value="BSCS" />B.COM &nbsp&nbsp<input type="radio"
-                                    name="branch" value="BSSE" />BPharma
+                                <input type="radio" name="branch" value="B.COM" />B.COM &nbsp&nbsp<input type="radio"
+                                    name="branch" value="BPharma" />BPharma
                             </div>
                         </div>
                         <label>Price:</label><input style="margin-left:30px" type="number" name="bookprice"
@@ -444,12 +444,14 @@ label {
                         $bookquantity = $row[8];
                         $bookava = $row[9];
                         $bookrent = $row[10];
+                        $bookISBN = "978-1-36-".$bookid."5426-4";
                     }
                     ?>
 
                     <img style='height: 320px; width: 200px;border:2px solid black; float:left;margin-left:20px;border-radius:20px'
                         src="uploads/<?php echo $bookimg ?> " />
                     </br>
+                    <p style="color:white"><u>Book ISBN:</u> &nbsp&nbsp<?php echo $bookISBN?></p>
                     <p style="color:white"><u>Book Name:</u> &nbsp&nbsp<?php echo $bookname ?></p>
                     <p style="color:white"><u>Book Detail:</u> &nbsp&nbsp<?php echo $bookdetail ?></p>
                     <p style="color:white"><u>Book Authour:</u> &nbsp&nbsp<?php echo $bookauthour ?></p>
@@ -457,7 +459,7 @@ label {
                     <p style="color:white"><u>Book Branch:</u> &nbsp&nbsp<?php echo $branch ?></p>
                     <p style="color:white"><u>Book Price:</u> &nbsp&nbsp<?php echo $bookprice ?></p>
                     <p style="color:white"><u>Book Available:</u> &nbsp&nbsp<?php echo $bookava ?></p>
-                    <p style="color:white"><u>Book Rent:</u> &nbsp&nbsp<?php echo $bookrent ?></p>
+                    <p style="color:white; margin-left:200px"><u>Book Rent:</u> &nbsp&nbsp<?php echo $bookrent ?></p>
 
 
                 </div>
