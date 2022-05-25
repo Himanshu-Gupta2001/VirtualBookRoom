@@ -18,6 +18,47 @@
 </head>
 
 <body>
+    <style>
+    .btnSubmit {
+        display: inline-block;
+        border-radius: 4px;
+        background-color: #7B62B6;
+        border: none;
+        color: white;
+        text-align: center;
+        font-size: 20px;
+        width: 200px;
+        transition: all 0.5s;
+        cursor: pointer;
+        margin: 5px;
+    }
+
+    .btnSubmit span {
+        cursor: pointer;
+        display: inline-block;
+        position: relative;
+        transition: 0.5s;
+    }
+
+    .btnSubmit span:after {
+        content: '\00bb';
+        position: absolute;
+        opacity: 0;
+        top: 0;
+        right: -20px;
+        transition: 0.5s;
+    }
+
+    .btnSubmit:hover span {
+        padding-right: 25px;
+    }
+
+    .btnSubmit:hover span:after {
+        opacity: 1;
+        right: 0;
+    }
+    </style>
+
     <?php
  $emailmsg="";
  $pasdmsg="";
@@ -55,7 +96,7 @@ if(!empty($_REQUEST['msg'])){
         </div>
         <div class="row">
             <div class="col-md-6 login-form-1">
-                <h3>Student and Teacher Login</h3>
+                <h3>User Login</h3>
                 <form action="login_server_page.php" method="get">
                     <div class="form-group">
                         <input type="text" class="form-control" name="login_email" placeholder="Your Email " value="" />
@@ -67,7 +108,7 @@ if(!empty($_REQUEST['msg'])){
                     </div>
                     <Label style="color:red"><?php echo $pasdmsg ?></label>
                     <div class="form-group">
-                        <input type="submit" class="btnSubmit" value="Login" />
+                        <button class="btnSubmit style=" vertical-align:middle"><span>Login </span></button>
                     </div>
                 </form>
             </div>
@@ -84,7 +125,7 @@ if(!empty($_REQUEST['msg'])){
                     </div>
                     <Label style="color:red"><?php echo $adpasdmsg ?></label>
                     <div class="form-group">
-                        <input type="submit" class="btnSubmit" value="Login" />
+                        <button class="btnSubmit style=" vertical-align:middle"><span>Login </span></button>
                     </div>
                 </form>
             </div>
