@@ -87,7 +87,7 @@ input {
     border-color: #66BFBF;
     width: 95%;
     height: 40px;
-    margin-top: 20px;
+    margin-top: 35px;
 }
 
 .sidebtn {
@@ -125,7 +125,7 @@ a {
 
 .imglogo {
     opacity: 0.8;
-    height: 15rem;
+    height: 22rem;
     width: 80%;
     border-radius: 20px;
     border: 5px solid white;
@@ -154,7 +154,7 @@ a {
 
 #addbook,
 label {
-    margin: 10px 20px 0px 0px;
+    margin: 10px 70px 0px 0px;
     text-align: center;
 }
 
@@ -168,6 +168,14 @@ label {
 #addbook input:hover {
     border-radius: 20px;
     transition: border-radius 0.8s ease;
+}
+
+#branchid {
+    margin-right: 70px;
+}
+
+#branchid label {
+    padding-right: 130px;
 }
 </style>
 
@@ -209,7 +217,7 @@ label {
 
             <div class="rightinnerdiv">
                 <div id="bookrequestapprove" class="innerright portion" style="display:none">
-                    <Button class="sidebtn">BOOK REQUEST APPROVE</Button>
+                    <Button class="greenbtn">BOOK REQUEST APPROVE</Button>
 
                     <?php
                     $u = new data;
@@ -251,21 +259,31 @@ label {
                                                                     } ?>">
                     <Button class="greenbtn">ADD NEW BOOK</Button>
                     <form action="addbookserver_page.php" method="post" enctype="multipart/form-data">
-                        <label>Book Name:</label><input type="text" name="bookname" required/>
+                        <label>Book Name:</label><input style="margin-right:25px" type="text" name="bookname"
+                            required />
                         </br>
-                        <label>Detail:</label><input type="text" name="bookdetail" required/></br>
-                        <label>Autor:</label><input type="text" name="bookaudor" required/></br>
-                        <label>Publication</label><input type="text" name="bookpub" required/></br>
-                        <div id="branchid">Branch:<input type="radio" name="branch" value="other" />OTHER<input
-                                type="radio" name="branch" value="BSIT" />B.TECH<div style="margin-left:80px"><input
-                                    type="radio" name="branch" value="BSCS" />B.COM<input type="radio" name="branch"
-                                    value="BSSE" />BPharma
+                        <label>Detail:</label><input style="margin-left:25px" type="text" name="bookdetail"
+                            required /></br>
+                        <label>Author:</label><input style="margin-left:20px" type="text" name="bookaudor"
+                            required /></br>
+                        <label>Publication</label><input style="margin-right:10px" type="text" name="bookpub"
+                            required /></br>
+                        <div id="branchid"><label>Branch:</label>
+                            <div style="margin-left:-110px; display:inline"><input type="radio" name="branch"
+                                    value="other" />OTHER
+                                &nbsp<input type="radio" name="branch" value="BSIT" />B.TECH
+                            </div>
+                            <div style="margin-left:170px">
+                                <input type="radio" name="branch" value="BSCS" />B.COM &nbsp&nbsp<input type="radio"
+                                    name="branch" value="BSSE" />BPharma
                             </div>
                         </div>
-                        <label>Price:</label><input type="number" name="bookprice" required/></br>
-                        <label>Quantity:</label><input type="number" name="bookquantity" required/></br>
-                        <label>Book Photo</label><input type="file" accept = "image/apng, image/avif, image/gif, image/jpeg, image/png, image/svg+xml, image/webp" name="bookphoto" required/></br>
-                        </br>
+                        <label>Price:</label><input style="margin-left:30px" type="number" name="bookprice"
+                            required /></br>
+                        <label>Quantity:</label><input type="number" name="bookquantity" required /></br>
+                        <label style="padding-left: 100px">Book Photo:</label><input type="file"
+                            accept="image/apng, image/avif, image/gif, image/jpeg, image/png, image/svg+xml, image/webp"
+                            name="bookphoto" style="margin-left:0px" required /></br>
 
                         <input class="greenbtn" type="submit" value="SUBMIT" />
                         </br>
