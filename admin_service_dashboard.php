@@ -20,9 +20,10 @@
 <style>
 body {
     background-image: url('images/books.jpg');
-    background-repeat: no-repeat;
     background-position: center;
-    background-size: auto;
+    background-size: cover;
+    background-repeat: no-repeat;
+    height: 100vh;
 }
 
 .innerdiv img {

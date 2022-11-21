@@ -34,8 +34,10 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
     body {
         margin: 0px;
         background-image: url('images/bookimage.jpg');
+        background-position: center;
+        background-size: cover;
         background-repeat: no-repeat;
-        background-size: auto;
+        height: 100vh;
     }
 
     .innerright,
@@ -175,7 +177,7 @@ $userloginid=$_SESSION["userid"] = $_GET['userlogid'];
         transition: border-radius 1s ease;
     }
     </style>
- 
+
 <body>
 
     <?php
