@@ -1,0 +1,1129 @@
+%%[
+   InsertDE("CFP_Debug", "LogDate", Now(), "GUID", RequestParameter('GUID'))
+  
+  /* ================================================================
+     STEP 1 – READ ALL PARAMETERS VIA RequestParameter()
+     ================================================================ */
+     
+  SET @CFP_PK = RequestParameter("GUID")
+  SET @rows = LookupRows("ExternalformProcessor_DE","CFP_PK",@CFP_PK)
+
+   IF RowCount(@rows) > 0 THEN
+
+      SET @row = Row(@rows,1)
+
+      SET @PrimaryKey      = Field(@row,"PrimaryKey")
+      SET @PKPrefix        = Substring(@PrimaryKey, 1, 2)
+      
+      IF @PKPrefix == 'EX' THEN
+        SET @Form_Source = 'External'
+      ELSE
+        SET @Form_Source = 'Internal'
+      ENDIF
+      
+      SET @Full_Page_URL   = Field(@row,"Full_Page_URL")
+      SET @FirstName       = Field(@row,"FirstName")
+      SET @LastName        = Field(@row,"LastName")
+      SET @EmailAddress    = Field(@row,"EmailAddress")
+      SET @Company         = Field(@row,"Company")
+      SET @JobTitle        = Field(@row,"JobTitle")
+      SET @Country         = Field(@row,"Country")
+      SET @Phone           = Field(@row,"Phone")
+      SET @CID             = Field(@row,"CID")
+      SET @medium          = Field(@row,"medium")
+      SET @MID             = Field(@row,"MID")
+      SET @term            = Field(@row,"term")
+      SET @Campaign        = Field(@row,"Campaign")
+      SET @Source          = Field(@row,"Source")
+      SET @content         = Field(@row,"content")
+
+      SET @db_annual_sales   = Field(@row,"db_annual_sales")
+      SET @db_city           = Field(@row,"db_city")
+      SET @db_company_name   = Field(@row,"db_company_name")
+      SET @db_country_name   = Field(@row,"db_country_name")
+      SET @db_employee_count = Field(@row,"db_employee_count")
+      SET @db_industry       = Field(@row,"db_industry")
+      SET @db_primary_naics  = Field(@row,"db_primary_naics")
+      SET @db_primary_sic    = Field(@row,"db_primary_sic")
+      SET @db_state          = Field(@row,"db_state")
+      SET @db_street_address = Field(@row,"db_street_address")
+      SET @db_sub_industry   = Field(@row,"db_sub_industry")
+      SET @db_web_site       = Field(@row,"db_web_site")
+      SET @db_zip            = Field(@row,"db_zip")
+
+      SET @confirmationPage      = Field(@row,"confirmationPage")
+      SET @formName              = Field(@row,"formName")
+      SET @pageURL               = Field(@row,"pageURL")
+      SET @conditionalProcessing = Field(@row,"conditionalProcessing")
+
+      SET @Preference1  = Field(@row,"Preference1")
+      SET @Preference2  = Field(@row,"Preference2")
+      SET @Preference3  = Field(@row,"Preference3")
+      SET @Preference4  = Field(@row,"Preference4")
+      SET @Preference5  = Field(@row,"Preference5")
+      SET @Preference6  = Field(@row,"Preference6")
+      SET @Preference7  = Field(@row,"Preference7")
+      SET @Preference8  = Field(@row,"Preference8")
+      SET @Preference9  = Field(@row,"Preference9")
+      SET @Preference10 = Field(@row,"Preference10")
+
+      SET @Tactic_ID            = Field(@row,"Tactic_ID")
+      SET @Lead_Source          = Field(@row,"Lead_Source")
+      SET @Inquiry_Type         = Field(@row,"Inquiry_Type")
+      SET @Message              = Field(@row,"Message")
+      SET @Department           = Field(@row,"Department")
+      SET @Level                = Field(@row,"Level")
+      SET @Function             = Field(@row,"Function")
+      SET @Lead_Source_Detail   = Field(@row,"Lead_Source_Detail")
+      SET @marketingTheme       = Field(@row,"marketingTheme")
+      SET @marketingCampaign    = Field(@row,"marketingCampaign")
+      SET @marketingSubCampaign = Field(@row,"marketingSubCampaign")
+      SET @RFP_Attachments      = Field(@row,"RFP_Attachments")
+   ENDIF
+
+  IF EMPTY(@RFP_Attachments) OR (@RFP_Attachments != 'True') THEN
+    SET @RFP_Attachments = 'False'
+  ENDIF
+
+  IF EMPTY(@db_annual_sales) THEN
+    SET @db_annual_sales = '0'
+  ENDIF
+
+  IF EMPTY(@db_employee_count) THEN
+    SET @db_employee_count = '0'
+  ENDIF
+  
+  /* Derive preference source label */
+  IF @Form_Source == 'External' THEN
+    SET @Pref_Source = 'External Centralized Form Processor'
+  ELSE
+    SET @Pref_Source = 'Internal Centralized Form Processor'
+  ENDIF
+  
+  IF EMPTY(@EmailAddress) THEN
+      RaiseError("Exception: The request could not be processed because one or more required parameters are missing", true)
+  ENDIF
+
+  /* Identify NoLead inquiry types — used as a flag across multiple steps */
+  IF (
+    @Inquiry_Type == 'Careers'                        OR
+    @Inquiry_Type == 'CPE Inquiries'                  OR
+    @Inquiry_Type == 'Press / Media'                  OR
+    @Inquiry_Type == 'KPMG Alumni'                    OR
+    @Inquiry_Type == 'Accounts Payable / W9 Requests' OR
+    @Inquiry_Type == 'Employment Verification'         OR
+    @Inquiry_Type == 'Vendor / Supplier Inquiries'
+  ) THEN
+    SET @isNoLead = 'True'
+  ELSE
+    SET @isNoLead = 'False'
+  ENDIF
+
+  /* MID value — needed for API auth in Step 8 */
+  SET @MID_Value = AuthenticatedMemberID()
+]%%
+
+<!-- ================================================================
+     STEP 2 – SALESFORCE INTEGRATION
+     ================================================================ -->
+<script runat="server">
+  Platform.Load("Core","1");
+  try {
+</script>
+
+%%[
+  VAR @Salesforce_ID, @ContactId, @leadId, @OwnerID, @KPMG_RFP_Documents_Link__c
+
+  /* ---------------------------------------------------------------
+     SINGLE ContactPointEmail lookup — result reused in Steps 2–5
+  --------------------------------------------------------------- */
+  SET @subscriberRows = RetrieveSalesforceObjects(
+    'ContactPointEmail','KPMG_Lead_Contact_Id__c',
+    'EmailAddress','=',@EmailAddress)
+
+  IF RowCount(@subscriberRows) > 0 THEN
+    SET @Salesforce_ID = Field(Row(@subscriberRows,1),'KPMG_Lead_Contact_Id__c')
+  ENDIF
+
+  IF Substring(@Salesforce_ID,1,3) == '003' THEN
+    SET @ContactId = @Salesforce_ID
+  ELSE
+    SET @leadId = @Salesforce_ID
+  ENDIF
+
+  /* RFP Documents link — used for Contact Us / Request For Services */
+  IF @RFP_Attachments == 'True' THEN
+    SET @KPMG_RFP_Documents_Link__c = 'RFP Document(s) available in SharePoint'
+  ELSE
+    SET @KPMG_RFP_Documents_Link__c = ''
+  ENDIF
+
+  /* ---------------------------------------------------------------
+     LEAD CREATE / UPDATE
+     Skipped entirely for NoLead inquiry types.
+     For all others: Internal vs External determines SF field set.
+  --------------------------------------------------------------- */
+  IF @isNoLead != 'True' THEN
+
+    IF NOT EMPTY(@ContactId) THEN
+      /* Contact exists — update intentionally commented per GEE-5976 */
+      /* SET @updateRecord = UpdateSingleSalesforceObject('Contact',@ContactId,...) */
+      SET @Salesforce_ID = @ContactId
+
+    ELSE
+
+      IF NOT EMPTY(@Inquiry_Type) AND @Form_Source != 'External' THEN
+        /* Internal Contact Us submission (Inquiry_Type present, non-NoLead) */
+        IF NOT EMPTY(@leadId) THEN
+          SET @updateRecord = UpdateSingleSalesforceObject('Lead',@leadId,
+            'Description',@Message,
+            'KPMG_RFP_Documents_Link__c',@KPMG_RFP_Documents_Link__c,
+            'Street',@db_street_address,'City',@db_city,'State',@db_state,
+            'PostalCode',@db_zip,'NumberOfEmployees',@db_employee_count,
+            'Website',@db_web_site,'AnnualRevenue',@db_annual_sales)
+        ELSE
+          IF @Inquiry_Type == 'Other' THEN
+            SET @leadId = CreateSalesforceObject('Lead',19,
+              'FirstName',@FirstName,'LastName',@LastName,'Email',@EmailAddress,
+              'Company',@Company,'Title',@Jobtitle,'Phone',@Phone,
+              'Description',@Message,'KPMG_Function__c',@Function,
+              'LeadSource',1,'KPMG_Lead_Source_Detail__c','Contact Us - Other',
+              'KPMG_RFP_Documents_Link__c',@KPMG_RFP_Documents_Link__c,
+              'Street',@db_street_address,'City',@db_city,'State',@db_state,
+              'PostalCode',@db_zip,'Country',@Country,
+              'NumberOfEmployees',@db_employee_count,
+              'Website',@db_web_site,'AnnualRevenue',@db_annual_sales)
+          ELSEIF @Inquiry_Type == 'Request for Services' THEN
+            SET @leadId = CreateSalesforceObject('Lead',19,
+              'FirstName',@FirstName,'LastName',@LastName,'Email',@EmailAddress,
+              'Company',@Company,'Title',@Jobtitle,'Phone',@Phone,
+              'Description',@Message,'KPMG_Function__c',@Function,
+              'LeadSource',1,
+              'KPMG_Lead_Source_Detail__c','Contact Us - Service Request / RFP',
+              'KPMG_RFP_Documents_Link__c',@KPMG_RFP_Documents_Link__c,
+              'Street',@db_street_address,'City',@db_city,'State',@db_state,
+              'PostalCode',@db_zip,'Country',@Country,
+              'NumberOfEmployees',@db_employee_count,
+              'Website',@db_web_site,'AnnualRevenue',@db_annual_sales)
+          ENDIF
+          SET @Salesforce_ID = @leadId
+        ENDIF
+
+      ELSE
+        /* Standard submission — Internal or External with empty Inquiry_Type */
+        IF @Form_Source == 'External' THEN
+          IF NOT EMPTY(@leadId) THEN
+            SET @updateRecord = UpdateSingleSalesforceObject('Lead',@leadId,
+              'KPMG_Level__c',@Level,'KPMG_Department__c',@Department,
+              'Street',@db_street_address,'City',@db_city,'State',@db_state,
+              'PostalCode',@db_zip,'KPMG_Lead_Industry__c',@db_industry,
+              'NumberOfEmployees',@db_employee_count,
+              'Website',@db_web_site,'AnnualRevenue',@db_annual_sales)
+          ELSE
+            SET @leadId = CreateSalesforceObject('Lead',20,
+              'FirstName',@FirstName,'LastName',@LastName,'Email',@EmailAddress,
+              'Company',@Company,'Title',@Jobtitle,'Phone',@Phone,
+              'KPMG_Level__c',@Level,'KPMG_Department__c',@Department,
+              'Street',@db_street_address,'City',@db_city,'State',@db_state,
+              'PostalCode',@db_zip,'Country',@Country,
+              'KPMG_Lead_Industry__c',@db_industry,
+              'NumberOfEmployees',@db_employee_count,
+              'Website',@db_web_site,'AnnualRevenue',@db_annual_sales,
+              'KPMG_Function__c',@Function,
+              'KPMG_Lead_Source_Detail__c',@Lead_Source_Detail,
+              'LeadSource',2)
+            SET @Salesforce_ID = @leadId
+            SET @IsStatusupdate = 'True'
+          ENDIF
+        ELSE
+          /* Internal standard submission */
+          IF NOT EMPTY(@leadId) THEN
+            SET @updateRecord = UpdateSingleSalesforceObject('Lead',@leadId,
+              'Street',@db_street_address,'City',@db_city,'State',@db_state,
+              'PostalCode',@db_zip,'NumberOfEmployees',@db_employee_count,
+              'Website',@db_web_site,'AnnualRevenue',@db_annual_sales)
+          ELSE
+            SET @leadId = CreateSalesforceObject('Lead',17,
+              'FirstName',@FirstName,'LastName',@LastName,'Email',@EmailAddress,
+              'Company',@Company,'Title',@Jobtitle,'Phone',@Phone,
+              'Street',@db_street_address,'City',@db_city,'State',@db_state,
+              'PostalCode',@db_zip,'Country',@Country,
+              'NumberOfEmployees',@db_employee_count,
+              'Website',@db_web_site,'AnnualRevenue',@db_annual_sales,
+              'KPMG_Function__c',@Function,
+              'KPMG_Lead_Source_Detail__c',@Lead_Source_Detail,
+              'LeadSource',1)
+            SET @Salesforce_ID = @leadId
+          ENDIF
+        ENDIF
+      ENDIF
+    ENDIF
+
+  ENDIF /* ENDIF @isNoLead != 'True' */
+]%%
+
+<script runat="server">
+  /* 3-second wait: allows SF to complete its multi-object transaction
+     (lead, IFD, ContactPointEmail) before SFID is read back. (GSENHANCEM-15676/7) */
+  function sleep(ms) {
+    var start = new Date().getTime();
+    for (var i = 0; i < 1e7; i++) {
+      if ((new Date().getTime() - start) > ms) { break; }
+    }
+  }
+  sleep(3000);
+
+  } catch(err) {
+    var errMsg = "Error SF Lead Create/Update: " + Stringify(err).substring(0,3950);
+    Platform.Function.InsertData(
+      "Centralized_Form_Processor_DE_Error_Log",
+      ["FirstName","LastName","EmailAddress","Company","JobTitle","Country","Phone",
+       "CID","medium","MID","term","Campaign","Source","content",
+       "db_annual_sales","db_city","db_company_name","db_country_name","db_employee_count",
+       "db_industry","db_primary_naics","db_primary_sic","db_state","db_street_address",
+       "db_sub_industry","db_web_site","db_zip","confirmationPage","formName","pageURL",
+       "conditionalProcessing","Preference1","Preference2","Preference3","Preference4",
+       "Preference5","Preference6","Preference7","Preference8","Preference9","Preference10",
+       "Tactic_ID","Lead_Source","Inquiry_Type","Message","Department","Level","Function",
+       "Lead_Source_Detail","marketingTheme","marketingCampaign","marketingSubCampaign",
+       "RFP_Attachments","Full_Page_URL","PrimaryKey","Page_Type","ErrorMessage"],
+      [Variable.GetValue("@FirstName"),Variable.GetValue("@LastName"),
+       Variable.GetValue("@EmailAddress"),Variable.GetValue("@Company"),
+       Variable.GetValue("@Jobtitle"),Variable.GetValue("@Country"),
+       Variable.GetValue("@Phone"),Variable.GetValue("@CID"),
+       Variable.GetValue("@medium"),Variable.GetValue("@MID"),
+       Variable.GetValue("@term"),Variable.GetValue("@Campaign"),
+       Variable.GetValue("@Source"),Variable.GetValue("@content"),
+       Variable.GetValue("@db_annual_sales"),Variable.GetValue("@db_city"),
+       Variable.GetValue("@db_company_name"),Variable.GetValue("@db_country_name"),
+       Variable.GetValue("@db_employee_count"),Variable.GetValue("@db_industry"),
+       Variable.GetValue("@db_primary_naics"),Variable.GetValue("@db_primary_sic"),
+       Variable.GetValue("@db_state"),Variable.GetValue("@db_street_address"),
+       Variable.GetValue("@db_sub_industry"),Variable.GetValue("@db_web_site"),
+       Variable.GetValue("@db_zip"),Variable.GetValue("@confirmationPage"),
+       Variable.GetValue("@formName"),Variable.GetValue("@pageURL"),
+       Variable.GetValue("@conditionalProcessing"),
+       Variable.GetValue("@Preference1"),Variable.GetValue("@Preference2"),
+       Variable.GetValue("@Preference3"),Variable.GetValue("@Preference4"),
+       Variable.GetValue("@Preference5"),Variable.GetValue("@Preference6"),
+       Variable.GetValue("@Preference7"),Variable.GetValue("@Preference8"),
+       Variable.GetValue("@Preference9"),Variable.GetValue("@Preference10"),
+       Variable.GetValue("@Tactic_ID"),Variable.GetValue("@Lead_Source"),
+       Variable.GetValue("@Inquiry_Type"),Variable.GetValue("@Message"),
+       Variable.GetValue("@Department"),Variable.GetValue("@Level"),
+       Variable.GetValue("@Function"),Variable.GetValue("@Lead_Source_Detail"),
+       Variable.GetValue("@marketingTheme"),Variable.GetValue("@marketingCampaign"),
+       Variable.GetValue("@marketingSubCampaign"),Variable.GetValue("@RFP_Attachments"),
+       Variable.GetValue("@Full_Page_URL"),Variable.GetValue("@PrimaryKey"),
+       Variable.GetValue("@Form_Source"),errMsg]);
+  }
+</script>
+
+<!-- ================================================================
+     STEP 3 – PROMOTE RECORD (Non-NoLead only)
+     ================================================================ -->
+<script runat="server">
+  try {
+</script>
+
+%%[
+  IF @isNoLead != 'True' AND NOT EMPTY(@Salesforce_ID) THEN
+
+    /* -------------------------------------------------------
+       INSERT FIRST into Centralized_Form_Processor_DE
+       InsertDE returns the number of rows inserted (1 = success).
+    ------------------------------------------------------- */
+    SET @InsertCFP = InsertData('Centralized_Form_Processor_DE',
+      'FirstName',@FirstName,'LastName',@LastName,'EmailAddress',@EmailAddress,
+      'Company',@Company,'JobTitle',@Jobtitle,'Country',@Country,'Phone',@Phone,
+      'CID',@CID,'medium',@medium,'MID',@MID,'term',@term,'Campaign',@Campaign,
+      'Source',@Source,'content',@content,
+      'db_annual_sales',@db_annual_sales,'db_city',@db_city,
+      'db_company_name',@db_company_name,'db_country_name',@db_country_name,
+      'db_employee_count',@db_employee_count,'db_industry',@db_industry,
+      'db_primary_naics',@db_primary_naics,'db_primary_sic',@db_primary_sic,
+      'db_state',@db_state,'db_street_address',@db_street_address,
+      'db_sub_industry',@db_sub_industry,'db_web_site',@db_web_site,'db_zip',@db_zip,
+      'confirmationPage',@confirmationPage,'formName',@formName,
+      'pageURL',@pageURL,'conditionalProcessing',@conditionalProcessing,
+      'Preference1',@Preference1,'Preference2',@Preference2,'Preference3',@Preference3,
+      'Preference4',@Preference4,'Preference5',@Preference5,'Preference6',@Preference6,
+      'Preference7',@Preference7,'Preference8',@Preference8,'Preference9',@Preference9,
+      'Preference10',@Preference10,'Tactic_ID',@Tactic_ID,
+      'Department',@Department,'Level',@Level,'Function',@Function,
+      'Lead_Source',@Lead_Source,'Lead_Source_Detail',@Lead_Source_Detail,
+      'Message',@Message,'RFP_Attachments',@RFP_Attachments,
+      'marketingTheme',@marketingTheme,'marketingCampaign',@marketingCampaign,
+      'marketingSubCampaign',@marketingSubCampaign,'PrimaryKey',@PrimaryKey,
+      'Inquiry_Type',@Inquiry_Type,'Full_Page_URL',@Full_Page_URL,
+      'CFP_PK',@CFP_PK,'Salesforce_ID',@Salesforce_ID)
+
+    /* -------------------------------------------------------
+       DELETE FROM NoSFID ONLY if the insert was successful.
+       @InsertCFP == 1 means exactly 1 row was inserted.
+       If insert failed (0 or error), staging record is preserved.
+    ------------------------------------------------------- */
+    IF (@InsertCFP == 1) THEN
+      SET @deleteCount = DeleteData('NoSFID_CentralizedFormProcessor','CFP_PK',@CFP_PK)
+    ENDIF
+
+  ENDIF
+]%%
+
+<script runat="server">
+  } catch(err) {
+    var errMsg = "Error CFP DE Promotion: " + Stringify(err).substring(0,3950);
+    Platform.Function.InsertData(
+      "Centralized_Form_Processor_DE_Error_Log",
+      ["FirstName","LastName","EmailAddress","Company","JobTitle","Country","Phone",
+       "CID","medium","MID","term","Campaign","Source","content",
+       "db_annual_sales","db_city","db_company_name","db_country_name","db_employee_count",
+       "db_industry","db_primary_naics","db_primary_sic","db_state","db_street_address",
+       "db_sub_industry","db_web_site","db_zip","confirmationPage","formName","pageURL",
+       "conditionalProcessing","Preference1","Preference2","Preference3","Preference4",
+       "Preference5","Preference6","Preference7","Preference8","Preference9","Preference10",
+       "Tactic_ID","Lead_Source","Inquiry_Type","Message","Department","Level","Function",
+       "Lead_Source_Detail","marketingTheme","marketingCampaign","marketingSubCampaign",
+       "RFP_Attachments","Full_Page_URL","PrimaryKey","Page_Type","ErrorMessage"],
+      [Variable.GetValue("@FirstName"),Variable.GetValue("@LastName"),
+       Variable.GetValue("@EmailAddress"),Variable.GetValue("@Company"),
+       Variable.GetValue("@Jobtitle"),Variable.GetValue("@Country"),
+       Variable.GetValue("@Phone"),Variable.GetValue("@CID"),
+       Variable.GetValue("@medium"),Variable.GetValue("@MID"),
+       Variable.GetValue("@term"),Variable.GetValue("@Campaign"),
+       Variable.GetValue("@Source"),Variable.GetValue("@content"),
+       Variable.GetValue("@db_annual_sales"),Variable.GetValue("@db_city"),
+       Variable.GetValue("@db_company_name"),Variable.GetValue("@db_country_name"),
+       Variable.GetValue("@db_employee_count"),Variable.GetValue("@db_industry"),
+       Variable.GetValue("@db_primary_naics"),Variable.GetValue("@db_primary_sic"),
+       Variable.GetValue("@db_state"),Variable.GetValue("@db_street_address"),
+       Variable.GetValue("@db_sub_industry"),Variable.GetValue("@db_web_site"),
+       Variable.GetValue("@db_zip"),Variable.GetValue("@confirmationPage"),
+       Variable.GetValue("@formName"),Variable.GetValue("@pageURL"),
+       Variable.GetValue("@conditionalProcessing"),
+       Variable.GetValue("@Preference1"),Variable.GetValue("@Preference2"),
+       Variable.GetValue("@Preference3"),Variable.GetValue("@Preference4"),
+       Variable.GetValue("@Preference5"),Variable.GetValue("@Preference6"),
+       Variable.GetValue("@Preference7"),Variable.GetValue("@Preference8"),
+       Variable.GetValue("@Preference9"),Variable.GetValue("@Preference10"),
+       Variable.GetValue("@Tactic_ID"),Variable.GetValue("@Lead_Source"),
+       Variable.GetValue("@Inquiry_Type"),Variable.GetValue("@Message"),
+       Variable.GetValue("@Department"),Variable.GetValue("@Level"),
+       Variable.GetValue("@Function"),Variable.GetValue("@Lead_Source_Detail"),
+       Variable.GetValue("@marketingTheme"),Variable.GetValue("@marketingCampaign"),
+       Variable.GetValue("@marketingSubCampaign"),Variable.GetValue("@RFP_Attachments"),
+       Variable.GetValue("@Full_Page_URL"),Variable.GetValue("@PrimaryKey"),
+       Variable.GetValue("@Form_Source"),errMsg]);
+  }
+</script>
+
+<!-- ================================================================
+     STEP 4 – CONSENT STATUS UPDATE
+     ================================================================ -->
+<script runat="server">
+  try {
+</script>
+
+%%[
+  VAR @ConsentStatusVal, @Individual_Firm_Details_Rows, @IsStatusupdate
+  SET @IsStatusupdate = 'FALSE'
+  SET @deleteCount    = DeleteData('Unsubscribe_From_All_Preferences','EmailAddress',@EmailAddress)
+
+  /* Use SFID from Step 2 ContactPointEmail lookup result.
+     For NoLead records where no lead was created, @Salesforce_ID
+     will be populated only if the person already existed in SF. */
+  IF NOT EMPTY(@Salesforce_ID) THEN
+    IF Substring(@Salesforce_ID,1,3) == '003' THEN
+      SET @Individual_Firm_Details_Rows = RetrieveSalesforceObjects(
+        'KPMG_Individual_Firm_Details__c','id,KPMG_Consent_Status__c',
+        'KPMG_ContactId__c','=',@Salesforce_ID)
+    ELSE
+      SET @Individual_Firm_Details_Rows = RetrieveSalesforceObjects(
+        'KPMG_Individual_Firm_Details__c','id,KPMG_Consent_Status__c',
+        'KPMG_LeadId__c','=',@Salesforce_ID)
+    ENDIF
+
+    IF RowCount(@Individual_Firm_Details_Rows) > 0 THEN
+      SET @ConsentStatusVal = Field(Row(@Individual_Firm_Details_Rows,1),'KPMG_Consent_Status__c')
+
+      IF @Form_Source == 'External' THEN
+        IF @ConsentStatusVal == 'Opt out'        OR
+           @ConsentStatusVal == 'Opt Out'        OR
+           @ConsentStatusVal == 'Opt In Pending' OR
+           @IsStatusupdate   == 'True' THEN
+          SET @IsStatusupdate = 'True'
+          SET @updateRecord   = UpdateSingleSalesforceObject(
+            'KPMG_Individual_Firm_Details__c',
+            Field(Row(@Individual_Firm_Details_Rows,1),'id'),
+            'KPMG_Consent_Status__c','Opt In')
+          SET @deleteCount = DeleteData('Unsubscribe_From_All_Preferences','EmailAddress',@EmailAddress)
+        ENDIF
+      ELSE
+        /* Internal (including NoLead) */
+        IF @ConsentStatusVal != 'Opt In' THEN
+          SET @IsStatusupdate = 'True'
+          SET @updateRecord   = UpdateSingleSalesforceObject(
+            'KPMG_Individual_Firm_Details__c',
+            Field(Row(@Individual_Firm_Details_Rows,1),'id'),
+            'KPMG_Consent_Status__c','Opt In')
+          SET @deleteCount = DeleteData('Unsubscribe_From_All_Preferences','EmailAddress',@EmailAddress)
+        ENDIF
+      ENDIF
+    ENDIF
+  ENDIF
+]%%
+
+<script runat="server">
+  } catch(err) {
+    var errMsg = "Error Consent Status Update: " + Stringify(err).substring(0,3950);
+    Platform.Function.InsertData(
+      "Centralized_Form_Processor_DE_Error_Log",
+      ["FirstName","LastName","EmailAddress","Company","JobTitle","Country","Phone",
+       "CID","medium","MID","term","Campaign","Source","content",
+       "db_annual_sales","db_city","db_company_name","db_country_name","db_employee_count",
+       "db_industry","db_primary_naics","db_primary_sic","db_state","db_street_address",
+       "db_sub_industry","db_web_site","db_zip","confirmationPage","formName","pageURL",
+       "conditionalProcessing","Preference1","Preference2","Preference3","Preference4",
+       "Preference5","Preference6","Preference7","Preference8","Preference9","Preference10",
+       "Tactic_ID","Lead_Source","Inquiry_Type","Message","Department","Level","Function",
+       "Lead_Source_Detail","marketingTheme","marketingCampaign","marketingSubCampaign",
+       "RFP_Attachments","Full_Page_URL","PrimaryKey","Page_Type","ErrorMessage"],
+      [Variable.GetValue("@FirstName"),Variable.GetValue("@LastName"),
+       Variable.GetValue("@EmailAddress"),Variable.GetValue("@Company"),
+       Variable.GetValue("@Jobtitle"),Variable.GetValue("@Country"),
+       Variable.GetValue("@Phone"),Variable.GetValue("@CID"),
+       Variable.GetValue("@medium"),Variable.GetValue("@MID"),
+       Variable.GetValue("@term"),Variable.GetValue("@Campaign"),
+       Variable.GetValue("@Source"),Variable.GetValue("@content"),
+       Variable.GetValue("@db_annual_sales"),Variable.GetValue("@db_city"),
+       Variable.GetValue("@db_company_name"),Variable.GetValue("@db_country_name"),
+       Variable.GetValue("@db_employee_count"),Variable.GetValue("@db_industry"),
+       Variable.GetValue("@db_primary_naics"),Variable.GetValue("@db_primary_sic"),
+       Variable.GetValue("@db_state"),Variable.GetValue("@db_street_address"),
+       Variable.GetValue("@db_sub_industry"),Variable.GetValue("@db_web_site"),
+       Variable.GetValue("@db_zip"),Variable.GetValue("@confirmationPage"),
+       Variable.GetValue("@formName"),Variable.GetValue("@pageURL"),
+       Variable.GetValue("@conditionalProcessing"),
+       Variable.GetValue("@Preference1"),Variable.GetValue("@Preference2"),
+       Variable.GetValue("@Preference3"),Variable.GetValue("@Preference4"),
+       Variable.GetValue("@Preference5"),Variable.GetValue("@Preference6"),
+       Variable.GetValue("@Preference7"),Variable.GetValue("@Preference8"),
+       Variable.GetValue("@Preference9"),Variable.GetValue("@Preference10"),
+       Variable.GetValue("@Tactic_ID"),Variable.GetValue("@Lead_Source"),
+       Variable.GetValue("@Inquiry_Type"),Variable.GetValue("@Message"),
+       Variable.GetValue("@Department"),Variable.GetValue("@Level"),
+       Variable.GetValue("@Function"),Variable.GetValue("@Lead_Source_Detail"),
+       Variable.GetValue("@marketingTheme"),Variable.GetValue("@marketingCampaign"),
+       Variable.GetValue("@marketingSubCampaign"),Variable.GetValue("@RFP_Attachments"),
+       Variable.GetValue("@Full_Page_URL"),Variable.GetValue("@PrimaryKey"),
+       Variable.GetValue("@Form_Source"),errMsg]);
+  }
+</script>
+
+<!-- ================================================================
+     STEP 5 – ASSOCIATED EMAIL ADDRESS PROCESSING
+     ================================================================ -->
+<script runat="server">
+  try {
+</script>
+
+%%[
+  SET @AssociatedEmailAddressList = RetrieveSalesforceObjects(
+    'ContactPointEmail','EmailAddress',
+    'KPMG_Lead_Contact_Id__c','=',@Salesforce_ID,
+    'EmailAddress','!=',@EmailAddress)
+
+  IF RowCount(@AssociatedEmailAddressList) > 0 THEN
+    IF @Form_Source == 'Internal' OR @IsStatusupdate == 'True' THEN
+      FOR @counter = 1 TO RowCount(@AssociatedEmailAddressList) DO
+        SET @AssociatedEmail = Field(Row(@AssociatedEmailAddressList,@counter),'EmailAddress')
+        SET @deleteCount1    = DeleteData('Unsubscribe_From_All_Preferences','EmailAddress',@AssociatedEmail)
+        SET @deleteCount2    = DeleteData('Unsubscriber_Preferences_Email','EmailAddress',@AssociatedEmail)
+
+        /* Update AllSubscriber to Active for each associated email (GSENHANCEM-16407/16408) */
+        SET @assocSub = CreateObject('Subscriber')
+        SetObjectProperty(@assocSub,'Status','Active')
+        SetObjectProperty(@assocSub,'SubscriberKey',@AssociatedEmail)
+        SET @assocSubStatus = InvokeUpdate(@assocSub)
+
+        SET @insertAssocAudit = InsertDE('Audit_Preferences',
+          'Salesforce_ID',@Salesforce_ID,'EmailAddress',@AssociatedEmail,
+          'Date',Now(),'Initiated_By',@Name,'Activity','Subscribed',
+          'Enrollment_Type','Self-Enrolled','Source',@Pref_Source)
+      NEXT @counter
+    ENDIF
+  ENDIF
+]%%
+
+<script runat="server">
+  } catch(err) {
+    var errMsg = "Error Associated Email Processing: " + Stringify(err).substring(0,3950);
+    Platform.Function.InsertData(
+      "Centralized_Form_Processor_DE_Error_Log",
+      ["FirstName","LastName","EmailAddress","Company","JobTitle","Country","Phone",
+       "CID","medium","MID","term","Campaign","Source","content",
+       "db_annual_sales","db_city","db_company_name","db_country_name","db_employee_count",
+       "db_industry","db_primary_naics","db_primary_sic","db_state","db_street_address",
+       "db_sub_industry","db_web_site","db_zip","confirmationPage","formName","pageURL",
+       "conditionalProcessing","Preference1","Preference2","Preference3","Preference4",
+       "Preference5","Preference6","Preference7","Preference8","Preference9","Preference10",
+       "Tactic_ID","Lead_Source","Inquiry_Type","Message","Department","Level","Function",
+       "Lead_Source_Detail","marketingTheme","marketingCampaign","marketingSubCampaign",
+       "RFP_Attachments","Full_Page_URL","PrimaryKey","Page_Type","ErrorMessage"],
+      [Variable.GetValue("@FirstName"),Variable.GetValue("@LastName"),
+       Variable.GetValue("@EmailAddress"),Variable.GetValue("@Company"),
+       Variable.GetValue("@Jobtitle"),Variable.GetValue("@Country"),
+       Variable.GetValue("@Phone"),Variable.GetValue("@CID"),
+       Variable.GetValue("@medium"),Variable.GetValue("@MID"),
+       Variable.GetValue("@term"),Variable.GetValue("@Campaign"),
+       Variable.GetValue("@Source"),Variable.GetValue("@content"),
+       Variable.GetValue("@db_annual_sales"),Variable.GetValue("@db_city"),
+       Variable.GetValue("@db_company_name"),Variable.GetValue("@db_country_name"),
+       Variable.GetValue("@db_employee_count"),Variable.GetValue("@db_industry"),
+       Variable.GetValue("@db_primary_naics"),Variable.GetValue("@db_primary_sic"),
+       Variable.GetValue("@db_state"),Variable.GetValue("@db_street_address"),
+       Variable.GetValue("@db_sub_industry"),Variable.GetValue("@db_web_site"),
+       Variable.GetValue("@db_zip"),Variable.GetValue("@confirmationPage"),
+       Variable.GetValue("@formName"),Variable.GetValue("@pageURL"),
+       Variable.GetValue("@conditionalProcessing"),
+       Variable.GetValue("@Preference1"),Variable.GetValue("@Preference2"),
+       Variable.GetValue("@Preference3"),Variable.GetValue("@Preference4"),
+       Variable.GetValue("@Preference5"),Variable.GetValue("@Preference6"),
+       Variable.GetValue("@Preference7"),Variable.GetValue("@Preference8"),
+       Variable.GetValue("@Preference9"),Variable.GetValue("@Preference10"),
+       Variable.GetValue("@Tactic_ID"),Variable.GetValue("@Lead_Source"),
+       Variable.GetValue("@Inquiry_Type"),Variable.GetValue("@Message"),
+       Variable.GetValue("@Department"),Variable.GetValue("@Level"),
+       Variable.GetValue("@Function"),Variable.GetValue("@Lead_Source_Detail"),
+       Variable.GetValue("@marketingTheme"),Variable.GetValue("@marketingCampaign"),
+       Variable.GetValue("@marketingSubCampaign"),Variable.GetValue("@RFP_Attachments"),
+       Variable.GetValue("@Full_Page_URL"),Variable.GetValue("@PrimaryKey"),
+       Variable.GetValue("@Form_Source"),errMsg]);
+  }
+</script>
+
+<!-- ================================================================
+     STEP 6 – EMAIL PREFERENCE MANAGEMENT
+     ================================================================ -->
+<script runat="server">
+  try {
+</script>
+
+%%[
+  /* Fetch SF name for Initiated_By fields */
+  VAR @SC_First_Name, @SC_Last_Name, @SC_Full_Name, @UpdateSFName, @sfrc, @sfRow
+
+  IF Substring(@Salesforce_ID,1,3) == '003' THEN
+    SET @UpdateSFName = RetrieveSalesforceObjects('Contact','FirstName,LastName','Id','=',@Salesforce_ID)
+  ELSE
+    SET @UpdateSFName = RetrieveSalesforceObjects('Lead','FirstName,LastName','Id','=',@Salesforce_ID)
+  ENDIF
+  SET @sfrc = RowCount(@UpdateSFName)
+  IF @sfrc > 0 THEN
+    SET @sfRow         = Row(@UpdateSFName,1)
+    SET @SC_First_Name = Field(@sfRow,'FirstName')
+    SET @SC_Last_Name  = Field(@sfRow,'LastName')
+  ENDIF
+  SET @SC_Full_Name = Concat(@SC_First_Name,' ',@SC_Last_Name)
+
+  /* Delete primary email from unsubscribe DEs before preference processing */
+  SET @delUnsub1 = DeleteData('Unsubscribe_From_All_Preferences','EmailAddress',@EmailAddress)
+  SET @delUnsub2 = DeleteData('Unsubscriber_Preferences_Email','EmailAddress',@EmailAddress)
+
+  FOR @i = 1 TO 10 DO
+    SET @rowset = BuildRowsetFromString(
+      treatascontent(Concat('%','%=v(@Preference',@i,')=%','%')),'|')
+
+    IF RowCount(@rowset) > 0 THEN
+      FOR @i1 = 1 TO RowCount(@rowset) DO
+        SET @row           = Row(@rowset,@i1)
+        SET @Preference_ID = Field(@row,1)
+        SET @nowDT         = Now()
+        SET @Preference_Enrollment_Key = Concat(@EmailAddress,'|',@Preference_ID)
+        SET @prefRow       = LookupRows('Subscriber_Preferences_Email',
+                               'Preference_Enrollment',@Preference_Enrollment_Key)
+        SET @Is_Preference_exist = RowCount(@prefRow)
+
+        /* SCENARIO 1 – New enrollment */
+        IF @Is_Preference_exist == 0 THEN
+          SET @insertPref = InsertDE('Subscriber_Preferences_Email',
+            'Salesforce_ID',@Salesforce_ID,'EmailAddress',@EmailAddress,
+            'Preference_ID',@Preference_ID,'Enrollment_Type','Self-Enrolled',
+            'Date',@nowDT,'LastModifiedDate',@nowDT,
+            'Preference_Enrollment',@Preference_Enrollment_Key,
+            'Initiated_By',@SC_Full_Name,'Source',@Pref_Source)
+
+          SET @Pref_unenrolled = Concat(@EmailAddress,'|',@Preference_ID)
+          SET @unsubscribed_pref = Lookup('Unsubscriber_Preferences_Email','EmailAddress',
+            'Preference_Unenrollment',@Pref_unenrolled)
+          IF NOT EMPTY(@unsubscribed_pref) THEN
+            SET @deleteUnsub = DeleteData('Unsubscriber_Preferences_Email',
+              'Preference_Unenrollment',@Pref_unenrolled)
+          ENDIF
+
+        ELSE
+          SET @existingPrefRow = Row(@prefRow,1)
+          SET @currentType     = Field(@existingPrefRow,'Enrollment_Type')
+          SET @currentSource   = Field(@existingPrefRow,'Source')
+
+          /* SCENARIO 2 – Existing, not Self-Enrolled */
+          IF @currentType != 'Self-Enrolled' THEN
+            SET @updatePref = UpdateDE('Subscriber_Preferences_Email',1,
+              'Preference_Enrollment',@Preference_Enrollment_Key,
+              'Salesforce_ID',@Salesforce_ID,
+              'Enrollment_Type','Self-Enrolled',
+              'Initiated_By',@SC_Full_Name,
+              'Source',@Pref_Source,
+              'LastModifiedDate',@nowDT)
+
+          /* SCENARIO 3 – Self-Enrolled, different source */
+          ELSEIF @currentType == 'Self-Enrolled' AND @currentSource != @Pref_Source THEN
+            SET @updatePref = UpdateDE('Subscriber_Preferences_Email',1,
+              'Preference_Enrollment',@Preference_Enrollment_Key,
+              'Salesforce_ID',@Salesforce_ID,
+              'Source',@Pref_Source,
+              'Initiated_By',@SC_Full_Name,
+              'LastModifiedDate',@nowDT)
+
+          /* SCENARIO 4 – Self-Enrolled, same source */
+          ELSEIF @currentType == 'Self-Enrolled' AND @currentSource == @Pref_Source THEN
+            SET @updatePref = UpdateDE('Subscriber_Preferences_Email',1,
+              'Preference_Enrollment',@Preference_Enrollment_Key,
+              'Salesforce_ID',@Salesforce_ID,
+              'LastModifiedDate',@nowDT,
+              'Initiated_By',@SC_Full_Name)
+          ENDIF
+        ENDIF
+
+        /* Audit always inserted for all 4 scenarios */
+        SET @insertAudit = InsertDE('Audit_Preferences',
+          'Salesforce_ID',@Salesforce_ID,'EmailAddress',@EmailAddress,
+          'Preference_ID',@Preference_ID,'Date',@nowDT,
+          'Initiated_By',@SC_Full_Name,'Activity','Subscribed',
+          'Enrollment_Type','Self-Enrolled','Source',@Pref_Source)
+
+      NEXT @i1
+    ENDIF
+  NEXT @i
+]%%
+
+<script runat="server">
+  } catch(err) {
+    var errMsg = "Error Preference Management: " + Stringify(err).substring(0,3950);
+    Platform.Function.InsertData(
+      "Centralized_Form_Processor_DE_Error_Log",
+      ["FirstName","LastName","EmailAddress","Company","JobTitle","Country","Phone",
+       "CID","medium","MID","term","Campaign","Source","content",
+       "db_annual_sales","db_city","db_company_name","db_country_name","db_employee_count",
+       "db_industry","db_primary_naics","db_primary_sic","db_state","db_street_address",
+       "db_sub_industry","db_web_site","db_zip","confirmationPage","formName","pageURL",
+       "conditionalProcessing","Preference1","Preference2","Preference3","Preference4",
+       "Preference5","Preference6","Preference7","Preference8","Preference9","Preference10",
+       "Tactic_ID","Lead_Source","Inquiry_Type","Message","Department","Level","Function",
+       "Lead_Source_Detail","marketingTheme","marketingCampaign","marketingSubCampaign",
+       "RFP_Attachments","Full_Page_URL","PrimaryKey","Page_Type","ErrorMessage"],
+      [Variable.GetValue("@FirstName"),Variable.GetValue("@LastName"),
+       Variable.GetValue("@EmailAddress"),Variable.GetValue("@Company"),
+       Variable.GetValue("@Jobtitle"),Variable.GetValue("@Country"),
+       Variable.GetValue("@Phone"),Variable.GetValue("@CID"),
+       Variable.GetValue("@medium"),Variable.GetValue("@MID"),
+       Variable.GetValue("@term"),Variable.GetValue("@Campaign"),
+       Variable.GetValue("@Source"),Variable.GetValue("@content"),
+       Variable.GetValue("@db_annual_sales"),Variable.GetValue("@db_city"),
+       Variable.GetValue("@db_company_name"),Variable.GetValue("@db_country_name"),
+       Variable.GetValue("@db_employee_count"),Variable.GetValue("@db_industry"),
+       Variable.GetValue("@db_primary_naics"),Variable.GetValue("@db_primary_sic"),
+       Variable.GetValue("@db_state"),Variable.GetValue("@db_street_address"),
+       Variable.GetValue("@db_sub_industry"),Variable.GetValue("@db_web_site"),
+       Variable.GetValue("@db_zip"),Variable.GetValue("@confirmationPage"),
+       Variable.GetValue("@formName"),Variable.GetValue("@pageURL"),
+       Variable.GetValue("@conditionalProcessing"),
+       Variable.GetValue("@Preference1"),Variable.GetValue("@Preference2"),
+       Variable.GetValue("@Preference3"),Variable.GetValue("@Preference4"),
+       Variable.GetValue("@Preference5"),Variable.GetValue("@Preference6"),
+       Variable.GetValue("@Preference7"),Variable.GetValue("@Preference8"),
+       Variable.GetValue("@Preference9"),Variable.GetValue("@Preference10"),
+       Variable.GetValue("@Tactic_ID"),Variable.GetValue("@Lead_Source"),
+       Variable.GetValue("@Inquiry_Type"),Variable.GetValue("@Message"),
+       Variable.GetValue("@Department"),Variable.GetValue("@Level"),
+       Variable.GetValue("@Function"),Variable.GetValue("@Lead_Source_Detail"),
+       Variable.GetValue("@marketingTheme"),Variable.GetValue("@marketingCampaign"),
+       Variable.GetValue("@marketingSubCampaign"),Variable.GetValue("@RFP_Attachments"),
+       Variable.GetValue("@Full_Page_URL"),Variable.GetValue("@PrimaryKey"),
+       Variable.GetValue("@Form_Source"),errMsg]);
+  }
+</script>
+
+<!-- ================================================================
+     STEP 7 – ALLSUBSCRIBER STATUS UPDATES  (GSENHANCEM-12892)
+     ================================================================ -->
+%%[
+  VAR @SubsKey1, @mysub1, @SubsKey2, @mysub2
+
+  SET @SubsKey1 = @EmailAddress
+  SET @mysub1   = CreateObject('Subscriber')
+  SetObjectProperty(@mysub1,'Status','Active')
+  SetObjectProperty(@mysub1,'SubscriberKey',@SubsKey1)
+  SET @statusCode1 = InvokeUpdate(@mysub1)
+
+  SET @SubsKey2 = @Salesforce_ID
+  SET @mysub2   = CreateObject('Subscriber')
+  SetObjectProperty(@mysub2,'Status','Active')
+  SetObjectProperty(@mysub2,'SubscriberKey',@SubsKey2)
+  SET @statusCode2 = InvokeUpdate(@mysub2)
+
+  /* ================================================================
+     STEP 8 – API CREDENTIAL FETCH
+     ================================================================ */
+  SET @PK_Email                    = Concat(@EmailAddress,'|',Now())
+  SET @Client_ID_ENC               = Lookup('ENT.API_Details','Encrypted Client Id','API Name','KPMGUS_DEFAULT_API')
+  SET @Client_Secret_ENC           = Lookup('ENT.API_Details','Encrypted Client Secret','API Name','KPMGUS_DEFAULT_API')
+  SET @Authentication_Base_URI_ENC = Lookup('ENT.API_Details','Encrypted Authentication Base URI','API Name','KPMGUS_DEFAULT_API')
+
+  SET @Client_ID_DEC = DecryptSymmetric(
+    @Client_ID_ENC,'AES',@null,'password',@null,'0000000000000000',@null,
+    '00000000000000000000000000000000')
+
+  SET @Client_Secret_DEC = DecryptSymmetric(
+    @Client_Secret_ENC,'AES',@null,'password',@null,'0000000000000000',@null,
+    '00000000000000000000000000000000')
+
+  SET @Authentication_Base_URI_DEC = DecryptSymmetric(
+    @Authentication_Base_URI_ENC,'AES',@null,'password',@null,'0000000000000000',@null,
+    '00000000000000000000000000000000')    
+]%%
+
+<!-- ================================================================
+     STEPS 9, 10 & 11 – JOURNEY PROCESSING
+     ================================================================ -->
+<script runat="server">
+  try {
+    var EmailAddress = Variable.GetValue("@EmailAddress");
+    var PK_Email     = Variable.GetValue("@PK_Email");
+    var Inquiry_Type = Variable.GetValue("@Inquiry_Type");
+    var Form_Source  = Variable.GetValue("@Form_Source");
+    var MID_Value    = Variable.GetValue("@MID_Value");
+    var contentType  = "application/json";
+
+    /* Authenticate to get access token */
+    var authEndpoint = Variable.GetValue("@Authentication_Base_URI_DEC");
+    var payload = {
+      client_id:     Variable.GetValue("@Client_ID_DEC"),
+      client_secret: Variable.GetValue("@Client_Secret_DEC"),
+      grant_type:    "client_credentials",
+      account_id:    MID_Value
+    };
+
+    var accessToken       = null;
+    var rest_instance_url = null;
+    var tokenRequest = HTTP.Post(authEndpoint + "/v2/token", contentType, Stringify(payload));
+
+    if (tokenRequest.StatusCode == 200) {
+      var tokenResponse = Platform.Function.ParseJSON(tokenRequest.Response[0]);
+      accessToken       = tokenResponse.access_token;
+      rest_instance_url = tokenResponse.rest_instance_url;
+    }
+
+    /* Helper: build common journey Data payload (all fields) */
+    function buildJourneyData() {
+      return {
+        "EmailAddress":          EmailAddress,
+        "PK_Email":              PK_Email,
+        "Inquiry_Type":          Inquiry_Type,
+        "FirstName":             Variable.GetValue("@FirstName"),
+        "LastName":              Variable.GetValue("@LastName"),
+        "Company":               Variable.GetValue("@Company"),
+        "JobTitle":              Variable.GetValue("@Jobtitle"),
+        "Country":               Variable.GetValue("@Country"),
+        "Phone":                 Variable.GetValue("@Phone"),
+        "CID":                   Variable.GetValue("@CID"),
+        "medium":                Variable.GetValue("@medium"),
+        "MID":                   Variable.GetValue("@MID"),
+        "term":                  Variable.GetValue("@term"),
+        "Campaign":              Variable.GetValue("@Campaign"),
+        "Source":                Variable.GetValue("@Source"),
+        "content":               Variable.GetValue("@content"),
+        "db_annual_sales":       Variable.GetValue("@db_annual_sales"),
+        "db_city":               Variable.GetValue("@db_city"),
+        "db_company_name":       Variable.GetValue("@db_company_name"),
+        "db_country_name":       Variable.GetValue("@db_country_name"),
+        "db_employee_count":     Variable.GetValue("@db_employee_count"),
+        "db_industry":           Variable.GetValue("@db_industry"),
+        "db_primary_naics":      Variable.GetValue("@db_primary_naics"),
+        "db_primary_sic":        Variable.GetValue("@db_primary_sic"),
+        "db_state":              Variable.GetValue("@db_state"),
+        "db_street_address":     Variable.GetValue("@db_street_address"),
+        "db_sub_industry":       Variable.GetValue("@db_sub_industry"),
+        "db_web_site":           Variable.GetValue("@db_web_site"),
+        "db_zip":                Variable.GetValue("@db_zip"),
+        "confirmationPage":      Variable.GetValue("@confirmationPage"),
+        "formName":              Variable.GetValue("@formName"),
+        "pageURL":               Variable.GetValue("@pageURL"),
+        "Full_Page_URL":         Variable.GetValue("@Full_Page_URL"),
+        "conditionalProcessing": Variable.GetValue("@conditionalProcessing"),
+        "Preference1":           Variable.GetValue("@Preference1"),
+        "Preference2":           Variable.GetValue("@Preference2"),
+        "Preference3":           Variable.GetValue("@Preference3"),
+        "Preference4":           Variable.GetValue("@Preference4"),
+        "Preference5":           Variable.GetValue("@Preference5"),
+        "Preference6":           Variable.GetValue("@Preference6"),
+        "Preference7":           Variable.GetValue("@Preference7"),
+        "Preference8":           Variable.GetValue("@Preference8"),
+        "Preference9":           Variable.GetValue("@Preference9"),
+        "Preference10":          Variable.GetValue("@Preference10"),
+        "Tactic_ID":             Variable.GetValue("@Tactic_ID"),
+        "Department":            Variable.GetValue("@Department"),
+        "Level":                 Variable.GetValue("@Level"),
+        "Function":              Variable.GetValue("@Function"),
+        "Message":               Variable.GetValue("@Message"),
+        "Lead_Source":           Variable.GetValue("@Lead_Source"),
+        "Lead_Source_Detail":    Variable.GetValue("@Lead_Source_Detail"),
+        "RFP_Attachments":       Variable.GetValue("@RFP_Attachments"),
+        "marketingTheme":        Variable.GetValue("@marketingTheme"),
+        "marketingCampaign":     Variable.GetValue("@marketingCampaign"),
+        "marketingSubCampaign":  Variable.GetValue("@marketingSubCampaign"),
+        "Salesforce_ID":         Variable.GetValue("@Salesforce_ID")
+      };
+    }
+
+    if (EmailAddress && accessToken) {
+      var headerNames  = ["Authorization"];
+      var headerValues = ["Bearer " + accessToken];
+      var eventsUrl    = rest_instance_url + "/interaction/v1/events";
+
+      /* =============================================================
+         STEP 9 – DYNAMIC JOURNEY TRIGGERS (GEE-9867)
+         ============================================================= */
+      try {
+        var formnameval  = Variable.GetValue("@formName");
+        var FormName_DE  = DataExtension.Init("FormName_Event_ID_Mapping_DE");
+        var API_Name_Arr = FormName_DE.Rows.Lookup(["formName"], [formnameval]);
+        if (API_Name_Arr === null) { API_Name_Arr = []; }
+
+        for (var j = 0; j < API_Name_Arr.length; j++) {
+          var dynBody = {
+            "ContactKey":         EmailAddress,
+            "EventDefinitionKey": API_Name_Arr[j].Event_ID,
+            "Data":               buildJourneyData()
+          };
+          var dynFire = HTTP.Post(eventsUrl, contentType, Stringify(dynBody), headerNames, headerValues);
+          if (dynFire.StatusCode == 201) {
+            Write("Dynamic Journey Triggered: " + API_Name_Arr[j].Event_ID);
+          } else {
+            Write("Dynamic Journey Status: " + Stringify(dynFire.StatusCode));
+          }
+        }
+      } catch(dynErr) {
+        var dynErrMsg = "Error Dynamic Journey: " + Stringify(dynErr).substring(0,3950);
+        Platform.Function.InsertData(
+          "Centralized_Form_Processor_DE_Error_Log",
+          ["FirstName","LastName","EmailAddress","Company","JobTitle","Country","Phone",
+           "CID","medium","MID","term","Campaign","Source","content",
+           "db_annual_sales","db_city","db_company_name","db_country_name","db_employee_count",
+           "db_industry","db_primary_naics","db_primary_sic","db_state","db_street_address",
+           "db_sub_industry","db_web_site","db_zip","confirmationPage","formName","pageURL",
+           "conditionalProcessing","Preference1","Preference2","Preference3","Preference4",
+           "Preference5","Preference6","Preference7","Preference8","Preference9","Preference10",
+           "Tactic_ID","Lead_Source","Inquiry_Type","Message","Department","Level","Function",
+           "Lead_Source_Detail","marketingTheme","marketingCampaign","marketingSubCampaign",
+           "RFP_Attachments","Full_Page_URL","PrimaryKey","Page_Type","ErrorMessage"],
+          [Variable.GetValue("@FirstName"),Variable.GetValue("@LastName"),
+           Variable.GetValue("@EmailAddress"),Variable.GetValue("@Company"),
+           Variable.GetValue("@Jobtitle"),Variable.GetValue("@Country"),
+           Variable.GetValue("@Phone"),Variable.GetValue("@CID"),
+           Variable.GetValue("@medium"),Variable.GetValue("@MID"),
+           Variable.GetValue("@term"),Variable.GetValue("@Campaign"),
+           Variable.GetValue("@Source"),Variable.GetValue("@content"),
+           Variable.GetValue("@db_annual_sales"),Variable.GetValue("@db_city"),
+           Variable.GetValue("@db_company_name"),Variable.GetValue("@db_country_name"),
+           Variable.GetValue("@db_employee_count"),Variable.GetValue("@db_industry"),
+           Variable.GetValue("@db_primary_naics"),Variable.GetValue("@db_primary_sic"),
+           Variable.GetValue("@db_state"),Variable.GetValue("@db_street_address"),
+           Variable.GetValue("@db_sub_industry"),Variable.GetValue("@db_web_site"),
+           Variable.GetValue("@db_zip"),Variable.GetValue("@confirmationPage"),
+           Variable.GetValue("@formName"),Variable.GetValue("@pageURL"),
+           Variable.GetValue("@conditionalProcessing"),
+           Variable.GetValue("@Preference1"),Variable.GetValue("@Preference2"),
+           Variable.GetValue("@Preference3"),Variable.GetValue("@Preference4"),
+           Variable.GetValue("@Preference5"),Variable.GetValue("@Preference6"),
+           Variable.GetValue("@Preference7"),Variable.GetValue("@Preference8"),
+           Variable.GetValue("@Preference9"),Variable.GetValue("@Preference10"),
+           Variable.GetValue("@Tactic_ID"),Variable.GetValue("@Lead_Source"),
+           Variable.GetValue("@Inquiry_Type"),Variable.GetValue("@Message"),
+           Variable.GetValue("@Department"),Variable.GetValue("@Level"),
+           Variable.GetValue("@Function"),Variable.GetValue("@Lead_Source_Detail"),
+           Variable.GetValue("@marketingTheme"),Variable.GetValue("@marketingCampaign"),
+           Variable.GetValue("@marketingSubCampaign"),Variable.GetValue("@RFP_Attachments"),
+           Variable.GetValue("@Full_Page_URL"),Variable.GetValue("@PrimaryKey"),
+           Variable.GetValue("@Form_Source"),dynErrMsg]);
+      }
+
+      /* =============================================================
+         STEP 10 – FETCH JOURNEY EVENT KEYS
+         ============================================================= */
+      var journeyConfigRows   = Platform.Function.LookupRows(
+        "ENT.Journey_API_Event_Key_Config_DE", "MID", MID_Value);
+      Write(MID_Value);
+      var NotificationTriggerKey = "";
+      var ContactUsJourneyKey    = "";
+      var CFPJourneyKey          = "";
+
+      if (journeyConfigRows && journeyConfigRows.length > 0) {
+        NotificationTriggerKey = journeyConfigRows[0]["ContactUs_Submission_Notification_Trigger"] || "";
+        ContactUsJourneyKey    = journeyConfigRows[0]["ContactUs_Journey"]                         || "";
+        CFPJourneyKey          = journeyConfigRows[0]["CentralizedFormProcessor_Journey"]          || "";
+      }
+
+      /* =============================================================
+         STEP 11 – STATIC JOURNEY ROUTING
+         ============================================================= */
+
+      if (Inquiry_Type && Inquiry_Type !== "") {
+
+        /* ---- Notification Trigger (Internal_Notification DE lookup) ---- */
+        try {
+          var InquiryTypeInfo = Platform.Function.LookupRows(
+            "Internal_Notification","Internal_InquiryType",Inquiry_Type);
+
+          if (InquiryTypeInfo && InquiryTypeInfo.length > 0) {
+            var InternalNotificationEmail = InquiryTypeInfo[0]["Internal_EmailAddress"];
+
+            var notifBody = {
+              "ContactKey":         InternalNotificationEmail,
+              "EventDefinitionKey": NotificationTriggerKey,
+              "Data": {
+                "EmailAddress":          EmailAddress,
+                "PK_Email":              PK_Email,
+                "Inquiry_Type":          Inquiry_Type,
+                "FirstName":             Variable.GetValue("@FirstName"),
+                "LastName":              Variable.GetValue("@LastName"),
+                "Company":               Variable.GetValue("@Company"),
+                "JobTitle":              Variable.GetValue("@Jobtitle"),
+                "Country":               Variable.GetValue("@Country"),
+                "Phone":                 Variable.GetValue("@Phone"),
+                "Message":               Variable.GetValue("@Message"),
+                "Lead_Source":           Variable.GetValue("@Lead_Source"),
+                "Lead_Source_Detail":    Variable.GetValue("@Lead_Source_Detail"),
+                "RFP_Attachments":       Variable.GetValue("@RFP_Attachments"),
+                "db_annual_sales":       Variable.GetValue("@db_annual_sales"),
+                "db_city":               Variable.GetValue("@db_city"),
+                "db_company_name":       Variable.GetValue("@db_company_name"),
+                "db_country_name":       Variable.GetValue("@db_country_name"),
+                "db_employee_count":     Variable.GetValue("@db_employee_count"),
+                "db_industry":           Variable.GetValue("@db_industry"),
+                "db_primary_naics":      Variable.GetValue("@db_primary_naics"),
+                "db_primary_sic":        Variable.GetValue("@db_primary_sic"),
+                "db_state":              Variable.GetValue("@db_state"),
+                "db_street_address":     Variable.GetValue("@db_street_address"),
+                "db_sub_industry":       Variable.GetValue("@db_sub_industry"),
+                "db_web_site":           Variable.GetValue("@db_web_site"),
+                "db_zip":                Variable.GetValue("@db_zip"),
+                "UTM_Campaign":          Variable.GetValue("@Campaign"),
+                "UTM_Source":            Variable.GetValue("@Source"),
+                "confirmationPage":      Variable.GetValue("@confirmationPage"),
+                "formName":              Variable.GetValue("@formName"),
+                "pageURL":               Variable.GetValue("@pageURL"),
+                "Tactic_ID":             Variable.GetValue("@Tactic_ID"),
+                "content":               Variable.GetValue("@content"),
+                "conditionalProcessing": Variable.GetValue("@conditionalProcessing"),
+                "marketingTheme":        Variable.GetValue("@marketingTheme"),
+                "marketingCampaign":     Variable.GetValue("@marketingCampaign"),
+                "marketingSubCampaign":  Variable.GetValue("@marketingSubCampaign"),
+                "Full_Page_URL":         Variable.GetValue("@Full_Page_URL"),
+                "NotificationEmailAddress": InternalNotificationEmail
+              }
+            };
+
+            var notifFire = HTTP.Post(eventsUrl, contentType, Stringify(notifBody), headerNames, headerValues);
+            if (notifFire.StatusCode == 201) {
+              Write("Notification Trigger: Success");
+            }
+          }
+        } catch(notifErr) {
+          /* Non-fatal — log and continue to Contact Us Journey */
+          var notifErrMsg = "Error Notification Trigger: " + Stringify(notifErr).substring(0,3950);
+          Platform.Function.InsertData(
+            "Centralized_Form_Processor_DE_Error_Log",
+            ["FirstName","LastName","EmailAddress","Inquiry_Type","Page_Type","ErrorMessage"],
+            [Variable.GetValue("@FirstName"),Variable.GetValue("@LastName"),
+             Variable.GetValue("@EmailAddress"),Inquiry_Type,
+             Variable.GetValue("@Form_Source"),notifErrMsg]);
+        }
+
+        /* ---- Contact Us Journey (NoLead AND standard non-empty Inquiry_Type) ---- */
+        var contactUsBody = {
+          "ContactKey":         EmailAddress,
+          "EventDefinitionKey": ContactUsJourneyKey,
+          "Data":               buildJourneyData()
+        };
+        var contactUsFire = HTTP.Post(eventsUrl, contentType, Stringify(contactUsBody), headerNames, headerValues);
+        if (contactUsFire.StatusCode == 201) {
+          Write("Contact Us Journey: Success");
+        } else {
+          Write("Contact Us Journey Status: " + Stringify(contactUsFire.StatusCode));
+        }
+
+      } else {
+
+        /* ---- Centralized Form Processor Journey (empty Inquiry_Type) ---- */
+        var cfpBody = {
+          "ContactKey":         EmailAddress,
+          "EventDefinitionKey": CFPJourneyKey,
+          "Data":               buildJourneyData()
+        };
+        var cfpFire = HTTP.Post(eventsUrl, contentType, Stringify(cfpBody), headerNames, headerValues);
+        if (cfpFire.StatusCode == 201) {
+          Write("CFP Journey: Success");
+        } else {
+          Write("CFP Journey Status: " + Stringify(cfpFire.StatusCode));
+        }
+      }
+    }
+
+  } catch(err) {
+    var errMsg = "Error Journey Processing: " + Stringify(err).substring(0,3950);
+    Platform.Function.InsertData(
+      "Centralized_Form_Processor_DE_Error_Log",
+      ["FirstName","LastName","EmailAddress","Company","JobTitle","Country","Phone",
+       "CID","medium","MID","term","Campaign","Source","content",
+       "db_annual_sales","db_city","db_company_name","db_country_name","db_employee_count",
+       "db_industry","db_primary_naics","db_primary_sic","db_state","db_street_address",
+       "db_sub_industry","db_web_site","db_zip","confirmationPage","formName","pageURL",
+       "conditionalProcessing","Preference1","Preference2","Preference3","Preference4",
+       "Preference5","Preference6","Preference7","Preference8","Preference9","Preference10",
+       "Tactic_ID","Lead_Source","Inquiry_Type","Message","Department","Level","Function",
+       "Lead_Source_Detail","marketingTheme","marketingCampaign","marketingSubCampaign",
+       "RFP_Attachments","Full_Page_URL","PrimaryKey","Page_Type","ErrorMessage"],
+      [Variable.GetValue("@FirstName"),Variable.GetValue("@LastName"),
+       Variable.GetValue("@EmailAddress"),Variable.GetValue("@Company"),
+       Variable.GetValue("@Jobtitle"),Variable.GetValue("@Country"),
+       Variable.GetValue("@Phone"),Variable.GetValue("@CID"),
+       Variable.GetValue("@medium"),Variable.GetValue("@MID"),
+       Variable.GetValue("@term"),Variable.GetValue("@Campaign"),
+       Variable.GetValue("@Source"),Variable.GetValue("@content"),
+       Variable.GetValue("@db_annual_sales"),Variable.GetValue("@db_city"),
+       Variable.GetValue("@db_company_name"),Variable.GetValue("@db_country_name"),
+       Variable.GetValue("@db_employee_count"),Variable.GetValue("@db_industry"),
+       Variable.GetValue("@db_primary_naics"),Variable.GetValue("@db_primary_sic"),
+       Variable.GetValue("@db_state"),Variable.GetValue("@db_street_address"),
+       Variable.GetValue("@db_sub_industry"),Variable.GetValue("@db_web_site"),
+       Variable.GetValue("@db_zip"),Variable.GetValue("@confirmationPage"),
+       Variable.GetValue("@formName"),Variable.GetValue("@pageURL"),
+       Variable.GetValue("@conditionalProcessing"),
+       Variable.GetValue("@Preference1"),Variable.GetValue("@Preference2"),
+       Variable.GetValue("@Preference3"),Variable.GetValue("@Preference4"),
+       Variable.GetValue("@Preference5"),Variable.GetValue("@Preference6"),
+       Variable.GetValue("@Preference7"),Variable.GetValue("@Preference8"),
+       Variable.GetValue("@Preference9"),Variable.GetValue("@Preference10"),
+       Variable.GetValue("@Tactic_ID"),Variable.GetValue("@Lead_Source"),
+       Variable.GetValue("@Inquiry_Type"),Variable.GetValue("@Message"),
+       Variable.GetValue("@Department"),Variable.GetValue("@Level"),
+       Variable.GetValue("@Function"),Variable.GetValue("@Lead_Source_Detail"),
+       Variable.GetValue("@marketingTheme"),Variable.GetValue("@marketingCampaign"),
+       Variable.GetValue("@marketingSubCampaign"),Variable.GetValue("@RFP_Attachments"),
+       Variable.GetValue("@Full_Page_URL"),Variable.GetValue("@PrimaryKey"),
+       Variable.GetValue("@Form_Source"),errMsg]);
+  }
+</script>
+
+https://cloud.email.kpmgus.com/CentralizedFormProcessorDEV?firstname=Himanshu&lastname=Gupta&EmailAddress=himanshu.h.gupta@capgemini.com&company=CG&Title=Contractor&country=USA&busPhone=4545676789&CID=&medium=&MID=&term=&Source=True+Influence&Campaign=7014W000001GLclQAG&content=GSENHANCEM-14161&db_annual_sales=0&db_city=&db_company_name=&db_country_name=&db_employee_count=0&db_primary_naics=&db_primary_sic=&db_state=&db_street_address=&db_sub_industry=&db_web_site=&db_zip=&confirmationPage=https://google.com&formName=&page_URL=https://home.kpmg/us/en/home.html&conditionalProcessing=&mktAttribute1=Pref_000333&mktAttribute2=&mktAttribute3=&mktAttribute4=&mktAttribute5=&mktAttribute6=&mktAttribute7=&mktAttribute8=&mktAttribute9=&mktAttribute10=&tacticid=7014W000001GLclQAG&marketingTheme=&marketingCampaign=&marketingSubCampaign=&Level=&Department=&Function=&Lead_Source=3rd Party Web Form&Lead_Source_Detail=Content+Syndication+True+Influence&db_industry=&Message=
