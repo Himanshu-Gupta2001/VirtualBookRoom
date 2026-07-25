@@ -1,0 +1,946 @@
+<script runat=server>
+  Platform.Load("core","1.1.1"); // Core library needs to be loaded only once
+  Variable.SetValue("@buId",Platform.Recipient.GetAttributeValue('memberid')); // Sets the ID of current BU
+</script>
+
+%%[ /* --- SET BU SPECIFIC GLOBAL VARIABLES (@buId value set in SSJS block above) --- */ ]%%
+
+%%[VAR @syncDeContact, @syncDeLead
+  IF @buId == "514028729" THEN 
+    /* BU: H3 QA */
+    SET @syncDeContact = "ent.Contact_Salesforce_10"
+    SET @syncDeLead = "ent.Lead_Salesforce_10"
+  ELSEIF @buId == "514007235" THEN 
+    /* BU: KPMG US */
+    SET @syncDeContact = "ent.Contact_Salesforce_5"
+    SET @syncDeLead = "ent.Lead_Salesforce_5"
+  ELSEIF @buId == "514015912" THEN 
+    /* BU: UAT */
+    SET @syncDeContact = "ent.Contact_Salesforce_28"
+    SET @syncDeLead = "ent.Lead_Salesforce_28"
+  ELSEIF @buId == "514029578" THEN 
+    /* BU: UATProject */
+    SET @syncDeContact = "ent.Contact_Salesforce_21"
+    SET @syncDeLead = "ent.Lead_Salesforce_21"
+  ELSEIF @buId == "514030190" THEN 
+    /* BU: Train */
+    SET @syncDeContact = "ent.Contact_Salesforce_12"
+    SET @syncDeLead = "ent.Lead_Salesforce_12"
+  ELSEIF @buId == "514031506" THEN 
+    /* BU: HFUAT */
+    SET @syncDeContact = "ent.Contact_Salesforce_17"
+    SET @syncDeLead = "ent.Lead_Salesforce_17"
+  ELSEIF @buId == "514013583" THEN
+    /* BU: DEV */
+    SET @syncDeContact = "ent.Contact_Salesforce_27"
+    SET @syncDeLead = "ent.Lead_Salesforce_27"
+  ENDIF
+]%%
+<html>
+  <head>
+    <title>KPMG: Subscription Preferences</title>
+    <link rel="icon" href="https://kpmg.com/kpmg-us/etc.clientlibs/kpmg/clientlibs/clientlib-site/resources/images/icons/favicons/favicon.ico" type="image/x-icon">
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <meta name="keywords" content="">
+    <meta name="description" content="">
+    <meta name="robots" content="noindex">
+    <meta name="robots" content="nofollow">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <style> 
+      /* Adjust container so Footer section could stay at the bottom when main content is not shown or has small height */
+      .container {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 100%;
+      }
+      .main-content {
+        display: flex; 
+        flex: 1;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        padding: 0 15% 0 15%;
+      }
+      .footer {
+        position: relative;
+      }
+      html, body {
+        height: 100%;
+        overflow: visible;
+      }
+      /*-- END of containers adjustment -- */
+      /*-- START GSENHANCEM-15711 -- */
+      body {
+        background-color: #ffffff;
+        margin: 0;
+        padding: 0;
+        font-family: Arial,Helvetica,sans-serif;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+      #header-logo-band {
+        background-color: #0C233C;
+        padding: 10px;
+      }
+      .footer {
+        background: #00338d;
+        color: #788ab6;
+        padding: 15px 5px;
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        position: relative;
+      }
+      .footer a:link, .footer a:visited {
+        color: #788ab6;
+        padding-right: 5px;
+      }
+      p {
+        position: relative;
+        font-size: 14px;
+        font-weight: normal;
+        line-height: 1.35em;
+        color: #000000;
+        margin: 50px 0 50px 0;
+        text-align: center;
+      }
+      div#header-logo-div {
+        max-width: 1132px;
+        margin: 0 auto;
+      }
+      #header-band{
+        margin: 0 0 20px;
+        background-color: #F5F6FA;
+        padding: 10px;
+        display: inline-block;
+        width: 100%;
+        height: auto !important;
+      }
+      #header-band-inner {
+        width: 1080px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .img {
+        width: 50px;
+        height: 50px;
+        margin-left: 2em;
+        margin-top: 1.4em;
+      }
+      .logo {
+        width: 55px;
+        height: 20px;
+        margin: 5px 0;
+        padding: 2px 5px 0 0;
+      }
+      .footer .copy-right {
+        width: 1067px;
+        margin-top: 0;
+        margin-bottom: 10px;
+        margin: 0 auto;
+      }
+      @media only screen and (width: 280px) {
+        .footer .copy-right {
+          padding: 0 !important;
+        }
+        #header-band-inner {
+          padding-left: 10px;
+        }
+        #header-band {
+          padding: 15px 10px !important;
+        }
+      }
+      @media only screen and (min-width: 280px) and (max-width: 539px) {
+        .stylingblock-content-wrapper {
+          width: 280px;
+          margin: 0 auto;
+          padding: 0;
+        }
+        #header-logo-band {
+          width: 100%;
+          padding: 10px 0;
+          margin: 0;
+          text-align: center;
+        }
+        .logo {
+          padding: 0;
+          margin: 0;
+        }
+        #header-band {
+          height: auto !important;
+          display: inline-block;
+          width: 100%;
+          padding: 15px 0;
+        }
+        .footer .copy-right {
+          width: 260px;
+          margin-top: 0px;
+          padding: 0 24px 0 0;
+        }
+      }
+      @media only screen and (min-width: 540px) and (max-width: 1023px) {
+        .stylingblock-content-wrapper{
+          width: 540px;
+          margin: 0 auto;
+          padding: 0;
+        }
+        div#header-logo-div {
+          max-width: 625px;
+          margin: 0 auto;
+        }
+        #header-logo-band {
+          max-width: 100%;
+          padding: 10px;
+          margin: 0;
+        }
+        .logo {
+          padding: 0;
+          margin: 0;
+        }
+        #header-band {
+          height: auto !important;
+          display: inline-block;
+          width: 100%;
+          padding: 15px 0;
+        }
+        .footer .copy-right {
+          width: 540px;
+          margin-top: 0px;
+          padding: 0 19px 0 5px;
+        }
+      }
+      /*-- END GSENHANCEM-15711 -- */
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div id="header-logo-band">
+        <div id="header-logo-div">
+          <img class="logo" src="https://image.s11.sfmc-content.com/lib/fe3411717164047a771775/m/1/10279564-6457-4a62-81ae-532bf3d73719.png" height="100%" alt="logo">
+        </div>
+      </div>
+      <div class="main-content">
+        <p>
+          You will be redirected to the Preferences page within 5&nbsp;seconds.
+          If not, please <a style="text-decoration: underline; color: #00338d; cursor: pointer;" onclick="goBack()">click&nbsp;here</a>.
+        </p>
+      </div>
+      <div class="footer">
+        <div class="copy-right">
+          ©%%=Format(Now(), "yyyy")=%% KPMG LLP, a Delaware limited liability partnership and a member firm of the KPMG global organization of independent member firms affiliated with KPMG International Limited, a private English company limited by guarantee. All rights reserved.
+          <br><br>
+          <!-- Added as part of GSENHANCEM-3009 -->
+          <a class="privacy" href="https://home.kpmg.com/us/en/home/misc/privacy.html" target="_blank" title="Privacy Policy">Privacy Policy</a>
+          <!-- Movedfrom 1052 to 1050 as part of GSENHANCEM-3009 -->
+          <a class="terms" href="https://institutes.kpmg.us/about-kpmg-institutes/usageterms.html" target="_blank" title="Terms of Use">Terms of Use</a>
+          <!-- Movedfrom 1053 to 1051 as part of GSENHANCEM-3009 -->
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+
+<script runat="server">
+  try {
+</script>
+%%[
+  VAR @checkDate, @checkDate1, @rowsUpdated
+  SET @Unsub = RequestParameter("unsub")
+  SET @email = RequestParameter("email")
+  SET @Salesforce_ID = RequestParameter("Salesforce_ID")
+  SET @Preference_Owner = RequestParameter("p_owner")
+  SET @Selected = RequestParameter("selected")
+  SET @PreSelected = RequestParameter("Preselected")
+  SET @Campaign_Origin = RequestParameter("Newsletter_param")
+  SET @show = RequestParameter("show")
+  SET @editor = RequestParameter("editor")
+  SET @PreferenceID_Status = RequestParameter("cb1")
+  /* Start GEE-4110 */
+  SET @JOBID = RequestParameter("JOBID")
+  SET @CID = RequestParameter("CID")
+  IF NOT EMPTY(@CID) THEN
+    IF Substring(@CID,1,3) == "701" THEN
+      SET @CID = @CID
+    ELSE
+      SET @CID = ""
+    ENDIF
+  ENDIF
+  /* End GEE-4110 */
+
+  /* ticekt 13673 START */
+  SET @pw = "symmetricpasswordExternalKey"
+  SET @salt = "saltpasswordExternalKey"
+  SET @initVector = "InitializationVectorpasswordExternal"
+
+  IF NOT EMPTY(@email) THEN
+    SET @email = DecryptSymmetric(Base64Decode(@email), "AES", @pw, @null, @salt, @null, @initVector, @null)
+  ENDIF
+  IF NOT EMPTY(@Preference_Owner) THEN
+    SET @Preference_Owner = DecryptSymmetric(Base64Decode(@Preference_Owner), "AES", @pw, @null, @salt, @null, @initVector, @null)
+  ENDIF
+  IF NOT EMPTY(@Salesforce_ID) THEN
+    SET @Salesforce_ID = DecryptSymmetric(Base64Decode(@Salesforce_ID), "AES", @pw, @null, @salt, @null, @initVector, @null)
+  ENDIF
+  IF NOT EMPTY(@Campaign_Origin) THEN
+    SET @Campaign_Origin = DecryptSymmetric(Base64Decode(@Campaign_Origin), "AES", @pw, @null, @salt, @null, @initVector, @null)
+  ENDIF
+  IF NOT EMPTY(@PreferenceID_Status) THEN
+    SET @PreferenceID_Status = DecryptSymmetric(Base64Decode(@PreferenceID_Status), "AES", @pw, @null, @salt, @null, @initVector, @null)
+  ENDIF
+
+  SET @SalesforceID_EmailAddress = Concat(@Salesforce_ID,"|",@email)
+  /* ticekt 13673 END */
+
+  SET @Date = Now()
+  SET @Pref_ID_Preference_Enrollment = Concat(@Campaign_Origin, "|", @email)
+  SET @Pref_ID_enrollment_Type = Lookup("Subscriber_Preferences_Email", "Enrollment_Type", "Preference_Enrollment", @Pref_ID_Preference_Enrollment)
+  SET @qs1 = RequestParameter("qs1")
+
+  /* Start GSENHANCEM-18921 */
+  VAR @Name
+  SET @Name = Lookup(@syncDeContact,"Name","Id",@Salesforce_ID) 
+  IF EMPTY(@Name) THEN
+    SET @contactSubscriberRows = RetrieveSalesforceObjects("Contact", "Name", "Id", "=", @Salesforce_ID)
+    IF RowCount(@contactSubscriberRows) > 0 THEN
+      SET @Name = Field(Row(@contactSubscriberRows, 1), "Name")  
+    ELSE     
+      SET @Name = Lookup(@syncDeLead,"Name","Id",@Salesforce_ID)
+      IF EMPTY(@Name) THEN
+        SET @LeadSubscriberRows = RetrieveSalesforceObjects("Lead", "Name", "Id", "=", @Salesforce_ID)
+        SET @Name = Field(Row(@LeadSubscriberRows, 1), "Name")
+      ENDIF
+    ENDIF 
+  ENDIF
+  /* End GSENHANCEM-18921 */
+  
+  VAR @RedirectVar
+  IF (
+      (NOT EMPTY(@Unsub) AND Length(@Unsub) > 20) OR 
+      (NOT EMPTY(@email) AND Length(@email) > 254) OR 
+      (NOT EMPTY(@Salesforce_ID) AND Length(@Salesforce_ID) > 50) OR 
+      (NOT EMPTY(@SalesforceID_EmailAddress) AND Length(@SalesforceID_EmailAddress) > 50) OR 
+      (NOT EMPTY(@Preference_Owner) AND Length(@Preference_Owner) > 100) OR 
+      (NOT EMPTY(@Selected) AND Length(@Selected) > 50) OR 
+      (NOT EMPTY(@PreSelected) AND Length(@PreSelected) > 50) OR 
+      (NOT EMPTY(@Campaign_Origin) AND Length(@Campaign_Origin) > 50) OR 
+      (NOT EMPTY(@editor) AND Length(@editor) > 100) OR 
+      (NOT EMPTY(@PreferenceID_Status) AND Length(@PreferenceID_Status) > 50) OR 
+      (NOT EMPTY(@preferenceID_name_p1) AND Length(@preferenceID_name_p1) > 50) OR 
+      (NOT EMPTY(@preference1_name_p1) AND Length(@preference1_name_p1) > 50) OR 
+      (NOT EMPTY(@Preference1_Status) AND Length(@Preference1_Status) > 50) OR 
+      (NOT EMPTY(@Preference1_ID) AND Length(@Preference1_ID) > 50) OR 
+      (NOT EMPTY(@qs1) AND Length(@qs1) > 50)
+    ) THEN
+      SET @RedirectVar = "TRUE"
+  ENDIF
+
+  /* START 16774 */
+  IF @Unsub == "unsubscribe" THEN
+    SET @AssociatedEmailAddressList = RetrieveSalesforceObjects("ContactPointEmail", "EmailAddress", "KPMG_Lead_Contact_Id__c", "=", @Salesforce_ID,"EmailAddress", "!=", @email)
+    IF RowCount(@AssociatedEmailAddressList) > 0 THEN
+      FOR @Counter1 = 1 TO RowCount(@AssociatedEmailAddressList) DO
+        SET @AssociatedEmail = Field(Row(@AssociatedEmailAddressList, @Counter1), "EmailAddress")
+        SET @Sub_Pref_rows = LookupRows("Subscriber_Preferences_Email","EmailAddress", @AssociatedEmail)
+        IF RowCount(@Sub_Pref_rows) > 0 THEN
+          FOR @Counter2 = 1 TO RowCount(@Sub_Pref_rows) DO
+            SET @Preference_ID_Var = Field(Row(@Sub_Pref_rows, @Counter2), "Preference_ID")
+            SET @Enrollment_Type_Var = Field(Row(@Sub_Pref_rows, @Counter2), "Enrollment_Type")
+            SET @Salesforce_ID_Var = Field(Row(@Sub_Pref_rows, @Counter2), "Salesforce_ID")
+            SET @Initiated_By_Var = Field(Row(@Sub_Pref_rows, @Counter2), "Initiated_By")
+            SET @Preference_Enrollment_Var = Field(Row(@Sub_Pref_rows, @Counter2), "Preference_Enrollment")   
+            SET @insert3 = InsertDE("Audit_Preferences", "Salesforce_ID", @Salesforce_ID_Var, "EmailAddress", @AssociatedEmail, "Date", Now(), "Initiated_By", @Name, "Activity", "Unsubscribed", "Enrollment_Type", "Self-Unenrolled","Preference_ID",@Preference_ID_Var,"Campaign_Origin",@Campaign_Origin,"Source","Preference Page","CampaignID",@CID,"JobID",@JOBID)
+            SET @SalesforceID_EmailAddress_var = Concat(@Salesforce_ID_Var, "|", @AssociatedEmail)
+            SET @Preference_Enrollment_Var = Concat(@AssociatedEmail, "|", @Preference_ID_Var)
+            UpsertDE("Unsubscriber_Preferences_Email", 1, "Preference_Unenrollment", @Preference_Enrollment_Var, "Salesforce_ID", @Salesforce_ID_Var, "EmailAddress", @AssociatedEmail, "Preference_ID",@Preference_ID_Var, "Unenrollment_Type", "Self-Unenrolled", "Enrollment_Type", @Enrollment_Type_Var, "Date",Now(), "Initiated_By", @Name, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+            UpsertDE("Unsubscribe_From_All_Preferences", 1, "SalesforceID_EmailAddress", @SalesforceID_EmailAddress_var, "EmailAddress", @AssociatedEmail, "Salesforce_ID", @Salesforce_ID_Var, "Date", Now(),"Initiated_By", @Name, "Campaign_Origin", @Campaign_Origin, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+          NEXT @Counter2
+         /* -------- INC4262667: Consent-level Audit for Associated Email -------- */
+         SET @insertConsentAudit_Assoc = InsertDE(
+            "Audit_Preferences",
+            "Salesforce_ID", @Salesforce_ID_Var,
+            "EmailAddress", @AssociatedEmail,
+            "Date", Now(),
+            "Initiated_By", @Name,
+            "Activity", "Unsubscribed",
+            "Enrollment_Type", "Self-Unenrolled",
+            "Preference_ID", "", /* blank for consent-level */
+            "Campaign_Origin", @Campaign_Origin,
+            "Source", "Preference Page",
+            "CampaignID", @CID,
+            "JobID", @JOBID
+          )
+          /* -------- End INC4262667 -------- */
+        ELSE
+          /* BUG-21126 - Email not subscribed to any preferences wasn't unsubscribed when "Unsubscribe From All" option submitted */
+          SET @insert3 = InsertDE("Audit_Preferences", "Salesforce_ID", @Salesforce_ID, "EmailAddress", @AssociatedEmail, "Date", Now(), "Initiated_By", @Name, "Activity", "Unsubscribed", "Enrollment_Type","Self-Unenrolled","Preference_ID", "", "Campaign_Origin", @Campaign_Origin, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+          UpsertDE("Unsubscribe_From_All_Preferences", 1, "SalesforceID_EmailAddress", Concat(@Salesforce_ID,"|",@AssociatedEmail), "EmailAddress", @AssociatedEmail, "Salesforce_ID", @Salesforce_ID, "Date", Now(),"Initiated_By", @Name, "Campaign_Origin", @Campaign_Origin, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+        ENDIF
+        SET @mysub1 = CreateObject("Subscriber")
+        SetObjectProperty(@mysub1, "Status", "unsubscribed")
+        SetObjectProperty(@mysub1, "SubscriberKey", @AssociatedEmail)
+        SET @statusCode1 = InvokeUpdate(@mysub1) 
+        SET @deleteCount2 = DeleteData("Subscriber_Preferences_Email","EmailAddress", @AssociatedEmail) 
+      NEXT @Counter1
+    ENDIF
+  ENDIF
+  /* END 16774 */
+  VAR @insert, @delete
+  IF @Unsub == "unsubscribe" THEN
+    /* Code below handles Unsubscrite from All request */
+    SET @rows = LookupRows("Subscriber_Preferences_Email", "EmailAddress", @email)
+    SET @rowCount = RowCount(@rows)
+    IF @rowCount > 0 THEN
+      FOR @i = 1 TO @rowCount DO
+        SET @row = Row(@rows,@i)
+        /* get row based on counter */
+        SET @assoc_Subscription_ID = Field(@row, "Preference_ID")
+        SET @Preference_Enrollment_unsub_all = Concat(@email, "|", @assoc_Subscription_ID)
+        SET @Preference_UnEnrollment_unsub_all = Concat(@email, "|", @assoc_Subscription_ID)
+        SET @Enrollment_Type_unsub_all = Lookup("Subscriber_Preferences_Email", "Enrollment_Type", "Preference_Enrollment", @Preference_Enrollment_unsub_all)
+        /*insert records in Audit Trail when a user checks Unsubscribe from all */
+        IF @show != "ALL" THEN
+          SET @insert = InsertDE("Audit_Preferences", "Salesforce_ID", @Salesforce_ID, "EmailAddress", @email, "Preference_ID", @assoc_Subscription_ID, "Date", Now(), "Initiated_By", @Name, "Activity", "Unsubscribed", "Enrollment_Type", "Self-Unenrolled", "Campaign_Origin", @Campaign_Origin, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+          /* BEGIN GSENHANCEM-4566 */
+          DeleteData("Unsubscriber_Preferences_Email", "Preference_Unenrollment", @Preference_UnEnrollment_unsub_all)
+          SET @insertUnenrolled1 = InsertDE("Unsubscriber_Preferences_Email", "Salesforce_ID", @Salesforce_ID, "EmailAddress", @email, "Preference_ID", @assoc_Subscription_ID, "Unenrollment_Type", "Self-Unenrolled", "Date", Now(), "Preference_Unenrollment", @Preference_UnEnrollment_unsub_all, "Initiated_By", @Name, "Enrollment_Type", @Enrollment_Type_unsub_all, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+          /* END GSENHANCEM-4566 */
+        /* This else block should be removed */       
+        ELSE
+          /*SET @initial_enrollment_Type = Lookup("Subscriber_Preferences_Email", "Enrollment_Type", "Preference_Enrollment", @Preference_Enrollment_unsub_all) */ /* --- !!! doesn't do anything */
+          SET @insert = InsertDE("Audit_Preferences","Salesforce_ID", @Salesforce_ID, "EmailAddress", @email, "Preference_ID", @assoc_Subscription_ID, "Date", Now(), "Initiated_By", @Name, "Activity", "Unsubscribed", "Enrollment_Type", "Self-Unenrolled", "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+          /* BEGIN GSENHANCEM-4566 */
+          DeleteData("Unsubscriber_Preferences_Email", "Preference_Unenrollment", @Preference_UnEnrollment_unsub_all)
+          SET @insertUnenrolled1 = InsertDE("Unsubscriber_Preferences_Email", "Salesforce_ID", @Salesforce_ID, "EmailAddress", @email, "Preference_ID", @assoc_Subscription_ID, "Unenrollment_Type", "Self-Unenrolled", "Date", Now(), "Preference_Unenrollment", @Preference_UnEnrollment_unsub_all, "Initiated_By", @Name, "Enrollment_Type", @Enrollment_Type_unsub_all, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+          /* END GSENHANCEM-4566 */
+        ENDIF
+      NEXT @i
+    ENDIF
+
+    /* delete all preferences from the Preferences DE associated to the email address */
+    SET @delete = DeleteData("Subscriber_Preferences_Email", "EmailAddress", @email)
+    
+    /* update Unsubscribe From All DE with an entry of the user that has unsubscribed from all */
+    UpsertDE("Unsubscribe_From_All_Preferences", 1, "SalesforceID_EmailAddress", @SalesforceID_EmailAddress, "EmailAddress", @email, "Salesforce_ID", @Salesforce_ID, "Date", Now(), "Initiated_By", @Name, "Campaign_Origin", @Campaign_Origin, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+    /* -------- INC4262667: Consent-level Audit for Primary Email -------- */
+  SET @insertConsentAudit_Primary = InsertDE(
+    "Audit_Preferences",
+    "Salesforce_ID", @Salesforce_ID,
+    "EmailAddress", @email,
+    "Preference_ID", "", /* blank for consent-level */
+    "Date", Now(),
+    "Initiated_By", @Name,
+    "Activity", "Unsubscribed",
+    "Enrollment_Type", "Self-Unenrolled",
+    "Campaign_Origin", @Campaign_Origin,
+    "Source", "Preference Page",
+    "CampaignID", @CID,
+    "JobID", @JOBID
+  )
+  /* -------- End INC4262667 -------- */
+    /* START 16774 update Consent Status on Individual firm detail record to Opt Out in Sales Cloud */
+    IF Substring(@Salesforce_ID, 1, 3) == "003" THEN
+      SET @Individual_Firm_Details_Rows = RetrieveSalesforceObjects("KPMG_Individual_Firm_Details__c", "id,KPMG_Consent_Status__c", "KPMG_ContactId__c", "=", @Salesforce_ID)
+    ELSE
+      SET @Individual_Firm_Details_Rows = RetrieveSalesforceObjects("KPMG_Individual_Firm_Details__c", "id,KPMG_Consent_Status__c", "KPMG_LeadId__c", "=", @Salesforce_ID)
+    ENDIF
+
+    IF RowCount(@Individual_Firm_Details_Rows) > 0 THEN
+      IF @ConsentStatusVal != "Opt Out" THEN
+        SET @updateRecord = UpdateSingleSalesforceObject("KPMG_Individual_Firm_Details__c", Field(Row(@Individual_Firm_Details_Rows, 1), "id"), "KPMG_Consent_Status__c", "Opt Out")
+      ENDIF
+      SET @mysub1 = CreateObject("Subscriber")
+      SetObjectProperty(@mysub1, "Status", "unsubscribed")
+      SetObjectProperty(@mysub1, "SubscriberKey", @email)
+      SET @statusCode1 = InvokeUpdate(@mysub1)
+      SET @mysub1 = CreateObject("Subscriber")
+      SetObjectProperty(@mysub1, "Status", "unsubscribed")
+      SetObjectProperty(@mysub1, "SubscriberKey", @Salesforce_ID)
+      SET @statusCode1 = InvokeUpdate(@mysub1)
+    ENDIF
+    /* END 16774 */
+
+    /* Unsuball is a flag that is marked as true whenever a user unsubs from all */
+    SET @Unsuball = "true"
+
+  ELSEIF NOT EMPTY(@Unsub) AND @Unsub != "undefined" AND @Unsub != "unsub" THEN 
+    /* Code below handles opt out for top preference (@newsletter_param/Preferenceid): @Unsub = Preference_ID */
+    IF IndexOf(@PreSelected, @Unsub) > 0 AND IndexOf(@Selected, @Unsub) == 0 THEN 
+      /* condition above ensures that code below is executed only when @newsletter_param/Preferenceid (from the pref page) changed to opt out */
+      SET @Preference_Enrollment = Concat(@email, "|", @Unsub)
+      SET @Enrollment_Type = Lookup("Subscriber_Preferences_Email", "Enrollment_Type", "Preference_Enrollment", @Preference_Enrollment)
+      IF @show != "ALL" THEN
+        SET @insert = InsertDE("Audit_Preferences", "Salesforce_ID", @Salesforce_ID, "EmailAddress", @email, "Preference_ID", @Unsub, "Date", Now(), "Initiated_By", @Name, "Activity", "Unsubscribed", "Enrollment_Type", "Self-Unenrolled", "Campaign_Origin", @Campaign_Origin, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+        /* BEGIN GSENHANCEM-4566 */
+        DeleteData("Unsubscriber_Preferences_Email", "Preference_Unenrollment", @Preference_Enrollment)
+        SET @insertUnenrolled = InsertDE("Unsubscriber_Preferences_Email", "Salesforce_ID", @Salesforce_ID, "EmailAddress", @email, "Preference_ID", @Unsub, "Unenrollment_Type", "Self-Unenrolled", "Date", Now(), "Preference_Unenrollment", @Preference_Enrollment, "Initiated_By", @Name, "Enrollment_Type", @Enrollment_Type, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+        /* END GSENHANCEM-4566 */
+      /* This Else block should be removed */
+      ELSE
+        SET @insert1 = InsertDE("Audit_Preferences", "Salesforce_ID", @Salesforce_ID, "EmailAddress", @email, "Preference_ID", @Unsub, "Date", Now(), "Initiated_By", @Name, "Activity", "Unsubscribed", "Enrollment_Type", "Self-Unenrolled", "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+        /* BEGIN GSENHANCEM-4566 */
+        DeleteData("Unsubscriber_Preferences_Email", "Preference_Unenrollment", @Preference_Enrollment)
+        SET @insertUnenrolled = InsertDE("Unsubscriber_Preferences_Email", "Salesforce_ID", @Salesforce_ID, "EmailAddress", @email, "Preference_ID", @Unsub, "Unenrollment_Type", "Self-Unenrolled", "Date", Now(), "Preference_Unenrollment", @Preference_Enrollment, "Initiated_By", @Name, "Enrollment_Type", @Enrollment_Type, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+        /* END GSENHANCEM-4566 */
+      ENDIF
+      SET @delete = DeleteData("Subscriber_Preferences_Email", "Preference_Enrollment", @Preference_Enrollment)
+    ENDIF
+  ENDIF /* ENDIF FOR IF @Unsub == "unsubscribe" */
+
+  IF @Unsuball != "true" THEN
+    /* code below opts out user from unchecked preferences START */
+    SET @rows = BuildRowsetFromString(@PreSelected, ",")
+    SET @rowCount = RowCount(@rows)
+
+    /* code below is executed if there are preferences on @PreSelected list (active preferences when pref page initially loaded) */
+    IF @rowCount > 0 THEN
+      FOR @i = 1 TO @rowCount DO
+        VAR @checkbox_preselect
+        SET @row = Row(@rows, @i) /* get row based on counter */
+        SET @checkbox_preselect = Field(@row,1)
+        IF IndexOf(@Selected, @checkbox_preselect) > 0 THEN
+        ELSE
+          /* this section executes if current preference's status changed to unsubscribed (was active wnen pref page initally loaded, then got unsubscribed) */
+          /* Insert in Audit Trail and Delete in Subscriber_Preferences_Email */
+          IF @checkbox_preselect != @Unsub THEN
+            SET @Preference_Enrollment1 = Concat(@email, "|", @checkbox_preselect)
+            SET @Enrollment_Type_selected = Lookup("Subscriber_Preferences_Email", "Enrollment_Type", "Preference_Enrollment", @Preference_Enrollment1)
+            IF @show != "ALL" THEN
+              SET @insert1 = InsertDE("Audit_Preferences", "Salesforce_ID", @Salesforce_ID, "EmailAddress", @email,"Preference_ID", @checkbox_preselect, "Date", Now(), "Initiated_By", @Name, "Activity", "Unsubscribed", "Enrollment_Type", "Self-Unenrolled", "Campaign_Origin", @Campaign_Origin, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+              /* BEGIN GSENHANCEM-4566 */
+              DeleteData("Unsubscriber_Preferences_Email", "Preference_Unenrollment", @Preference_Enrollment1)
+              SET @insertUnenrolled = InsertDE("Unsubscriber_Preferences_Email", "Salesforce_ID", @Salesforce_ID, "EmailAddress", @email, "Preference_ID", @checkbox_preselect, "Unenrollment_Type", "Self-Unenrolled", "Date", Now(), "Preference_Unenrollment", @Preference_Enrollment1, "Initiated_By", @Name, "Enrollment_Type", @Enrollment_Type_selected, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+              /* END GSENHANCEM-4566 */
+            ELSE
+              SET @insert1 = InsertDE("Audit_Preferences", "Salesforce_ID", @Salesforce_ID, "EmailAddress", @email, "Preference_ID", @checkbox_preselect, "Date", Now(), "Initiated_By", @editor, "Activity", "Unsubscribed", "Enrollment_Type", "Self-Unenrolled", "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+              /* BEGIN GSENHANCEM-4566 */
+              DeleteData("Unsubscriber_Preferences_Email", "Preference_Unenrollment", @Preference_Enrollment1)
+              SET @insertUnenrolled = InsertDE("Unsubscriber_Preferences_Email", "Salesforce_ID", @Salesforce_ID, "EmailAddress", @email, "Preference_ID", @checkbox_preselect, "Unenrollment_Type", "KPMG-Unenrolled", "Date", Now(), "Preference_Unenrollment", @Preference_Enrollment1, "Initiated_By", @editor, "Enrollment_Type", @Enrollment_Type_selected, "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+              /* END GSENHANCEM-4566 */
+            ENDIF
+            SET @delete = DeleteData("Subscriber_Preferences_Email", "Preference_Enrollment", @Preference_Enrollment1)
+          ENDIF
+           /* Start Alumni Preference Opt Out */
+          IF @Preference_Enrollment1 == Concat(@email, "|", "Pref_000312") THEN
+            SET @IfdIdRows = RetrieveSalesforceObjects("KPMG_Individual_Firm_Details__c", "Id", "KPMG_ContactId__c", "=", @Salesforce_ID)
+            IF RowCount(@IfdIdRows) > 0 THEN
+              SET @IfdId = Field(Row(@IfdIdRows, 1), "Id")
+              SET @updaterecord = UpdateSingleSalesforceObject("KPMG_Individual_Firm_Details__c", @IfdId, "KPMG_Alumni_Opt_In__c", "false")
+            ENDIF
+          ENDIF
+        ENDIF
+         /* END Alumni Preference Opt Out */
+        /* ENDIF FOR IndexOf(@selected,@checkbox_preselect) > 0 */
+      NEXT @i
+    ENDIF /* opts out user from unchecked preferences END */
+
+    /* code below opts in the user for checked subscriptions GEE-33881*/ 
+    SET @rows1 = BuildRowsetFromString(@Selected, ",")
+    SET @rowCount1 = RowCount(@rows1)
+    IF @rowCount1 > 0 THEN 
+      /* if @PreSelected is empty, there was no active susbscriptions - either unsub from All or never subscribed to any preference */
+      IF RowCount(BuildRowsetFromString(Trim(@PreSelected), ",")) == 0 THEN  
+        SET @deleteCount = DeleteData("Unsubscribe_From_All_Preferences","EmailAddress", @email)
+      ENDIF
+
+      FOR @i1 = 1 TO @rowCount1 DO
+  VAR @checkbox_select, @row1, @Pref_enroll, @enroll_update, @source_update, @now,
+      @Preference_Enrollment2, @insert, @insert2, @insert9, @delete, @rowsUpdated,
+      @guid_ref, @initiatedBy, @confirmedDate, @lastModifiedDate, @insertActivity
+
+  SET @row1 = Row(@rows1, @i1)
+  SET @checkbox_select = Field(@row1, 1)
+
+  IF @checkbox_select != "" THEN
+    /* Build canonical preference enrollment key */
+    SET @Pref_enroll = Concat(@email, "|", @checkbox_select)
+    SET @Preference_Enrollment2 = @Pref_enroll /* used for inserts */
+    
+    /* Current time for ConfirmedEnrollmentDate, LastModifiedDate */
+    SET @now = Now() /* This is already a date object */
+    //SET @dateObj = FormatDate(@dateObj, "yyyy-MM-dd HH:mm:ss.fff")
+
+    /* For subscriber-initiated flows, ConfirmedEnrollmentDate is set. For Sales Cloud (@show == "ALL"), it is NOT updated. */
+    IF @show != "ALL" THEN
+      SET @confirmedDate = @now
+    ELSE
+      SET @confirmedDate = "" /* Sales Cloud actions do not set ConfirmedEnrollmentDate */
+    ENDIF
+    /* LastModifiedDate should be set for any Save Updates click (subscriber or Sales Cloud where applicable) */
+    SET @lastModifiedDate = @now
+
+    /* determine who initiated (editor for account/team flows, Name for user flows) */
+    IF EMPTY(@editor) THEN
+      SET @initiatedBy = @Name
+    ELSE
+      SET @initiatedBy = @editor
+    ENDIF
+
+    /* GUIDs: GUID for log, GUID_Reference if you have an existing tracking guid variable @GUID */
+    SET @guid_ref = GUID()
+    IF Length(@guid_ref) > 36 THEN
+        SET @guid_ref = Substring(@guid_ref, 1, 36)
+    ENDIF
+
+    /* Look up existing enrollment metadata (if present) */
+    SET @enroll_update = Lookup("Subscriber_Preferences_Email", "Enrollment_Type", "Preference_Enrollment", @Pref_enroll)
+    SET @source_update = Lookup("Subscriber_Preferences_Email", "Source", "Preference_Enrollment", @Pref_enroll)
+
+    /* --- CASE A: Preference is already in user's preselected list (already subscribed) --- */
+    IF IndexOf(@preselected, @checkbox_select) > 0 THEN
+
+      /* If @show != "ALL" this is a normal Preference Page (self-enroll) action */
+      IF @show != "ALL" THEN
+
+        /* Scenario 2: currently enrolled but not Self-Enrolled -> change to Self-Enrolled */
+        IF NOT EMPTY(@enroll_update) AND @enroll_update != "Self-Enrolled" THEN
+
+          /* Insert audit record - enrollment changed to Self-Enrolled */
+          SET @insert9 = InsertDE("Audit_Preferences",
+                     "Salesforce_ID", @Salesforce_ID,
+                     "EmailAddress", @email,
+                     "Preference_ID", @checkbox_select,
+                     "Date", @now,
+                     "InsertDate", @now,
+                     "Initiated_By", @initiatedBy,
+                     "Activity", "Subscribed",
+                     "Enrollment_Type", "Self-Enrolled",
+                     "Campaign_Origin", @Campaign_Origin,
+                     "Source", "Preference Page",
+                     "CampaignID", @CID,
+                     "JobID", @JOBID)
+
+          /* Delete any Unsubscriber record for this preference (retain existing behaviour) */
+          SET @delete = DeleteData("Unsubscriber_Preferences_Email", "Preference_Unenrollment", @Preference_Enrollment2)
+
+          /* Update Subscriber_Preferences_Email: set Enrollment_Type, Source, ConfirmedEnrollmentDate and LastModifiedDate and metadata */
+          SET @rowsUpdated = UpdateData("Subscriber_Preferences_Email",
+                     3,
+                     "Preference_Enrollment", @Pref_enroll,
+                     "EmailAddress", @email,
+                     "Preference_ID", @checkbox_select,
+                     "Salesforce_ID", @Salesforce_ID,
+                     "Enrollment_Type", "Self-Enrolled",
+                     "Initiated_By", @initiatedBy,
+                     "Source", "Preference Page",
+                     "ConfirmedEnrollmentDate", @confirmedDate,
+                     "LastModifiedDate", @lastModifiedDate,
+                     "CampaignID", @CID,
+                     "JobID", @JOBID)
+
+          /* Log activity for every Save Updates click (Scenario 6) */
+          SET @insertActivity = InsertDE("Preference_Page_Activity_Log",                
+                     "Salesforce_ID", @Salesforce_ID,
+                     "EmailAddress", @email,
+                     "Preference_ID", @checkbox_select,
+                     "Initiated_By", @initiatedBy,
+                     "Source", "Preference Page",
+                     "ConfirmedEnrollmentDate", @confirmedDate,
+                     "LastModifiedDate", @lastModifiedDate,
+                     "Enrollment_Type", "Self-Enrolled",
+                     "CampaignID", @CID,
+                     "JobID", @JOBID,
+                     "GUID", @guid_ref)
+
+        ELSE
+          /* Enrollment_Type already Self-Enrolled */
+
+          /* Scenario 3: Source is not Preference Page -> update Source + ConfirmedEnrollmentDate + LastModifiedDate + audit */
+          IF NOT EMPTY(@source_update) AND @source_update != "Preference Page" THEN
+          
+              /* Insert audit record - source changed to Self-Enrolled */
+              SET @insert9 = InsertDE("Audit_Preferences",
+                       "Salesforce_ID", @Salesforce_ID,
+                       "EmailAddress", @email,
+                       "Preference_ID", @checkbox_select,
+                       "Date", @now,
+                       "InsertDate", @now,
+                       "Initiated_By", @initiatedBy,
+                       "Activity", "Subscribed",
+                       "Enrollment_Type", "Self-Enrolled",
+                       "Campaign_Origin", @Campaign_Origin,
+                       "Source", "Preference Page",
+                       "CampaignID", @CID,
+                       "JobID", @JOBID)
+
+            /* Delete any Unsubscriber record (retain behavior) */
+            SET @delete = DeleteData("Unsubscriber_Preferences_Email", "Preference_Unenrollment", @Preference_Enrollment2)
+
+            /* Update Source, ConfirmedEnrollmentDate and LastModifiedDate (Enrollment_Type stays Self-Enrolled) */
+            SET @rowsUpdated = UpdateData("Subscriber_Preferences_Email",
+                       3,
+                       "Preference_Enrollment", @Pref_enroll,
+                       "EmailAddress", @email,
+                       "Preference_ID", @checkbox_select,
+                       "Salesforce_ID", @Salesforce_ID,
+                       "Enrollment_Type", "Self-Enrolled")
+
+            /* Log activity (Scenario 6) */
+            SET @insertActivity = InsertDE("Preference_Page_Activity_Log",               
+                       "Salesforce_ID", @Salesforce_ID,
+                       "EmailAddress", @email,
+                       "Preference_ID", @checkbox_select,
+                       "Initiated_By", @initiatedBy,
+                       "Source", "Preference Page",
+                       "ConfirmedEnrollmentDate", @confirmedDate,
+                       "LastModifiedDate", @lastModifiedDate,
+                       "Enrollment_Type", "Self-Enrolled",
+                       "CampaignID", @CID,
+                       "JobID", @JOBID,
+                       "GUID", @guid_ref)
+
+          ELSE
+            /* Scenario 4: Enrollment_Type == Self-Enrolled AND Source already Preference Page
+               -> Only update ConfirmedEnrollmentDate and LastModifiedDate + audit*/
+               
+              /* Insert audit record - source already set to Self-Enrolled */
+              SET @insert9 = InsertDE("Audit_Preferences",
+                       "Salesforce_ID", @Salesforce_ID,
+                       "EmailAddress", @email,
+                       "Preference_ID", @checkbox_select,
+                       "Date", @now,
+                       "InsertDate", @now,
+                       "Initiated_By", @initiatedBy,
+                       "Activity", "Subscribed",
+                       "Enrollment_Type", "Self-Enrolled",
+                       "Campaign_Origin", @Campaign_Origin,
+                       "Source", "Preference Page",
+                       "CampaignID", @CID,
+                       "JobID", @JOBID)
+            /* Update ConfirmedEnrollmentDate and LastModifiedDate only */
+            SET @rowsUpdated = UpdateData("Subscriber_Preferences_Email",
+                       3,
+                       "Preference_Enrollment", @Pref_enroll,
+                       "EmailAddress", @email,
+                       "Preference_ID", @checkbox_select,
+                       "ConfirmedEnrollmentDate", @confirmedDate,
+                       "LastModifiedDate", @lastModifiedDate,
+                       "CampaignID", @CID,
+                       "JobID", @JOBID)
+
+            /* Log activity (Scenario 6) even if no audit */
+            SET @insertActivity = InsertDE("Preference_Page_Activity_Log",           
+                       "Salesforce_ID", @Salesforce_ID,
+                       "EmailAddress", @email,
+                       "Preference_ID", @checkbox_select,
+                       "Initiated_By", @initiatedBy,
+                       "Source", "Preference Page",
+                       "ConfirmedEnrollmentDate", @confirmedDate,
+                       "LastModifiedDate", @lastModifiedDate,
+                       "Enrollment_Type", "Self-Enrolled",
+                       "CampaignID", @CID,
+                       "JobID", @JOBID,
+                       "GUID", @guid_ref)
+
+          ENDIF /* source check */
+        ENDIF /* enrollment_type check */
+        
+        /* @show == "ALL" branch - Sales Cloud / Account team behavior */
+        /* Preselected means preference already subscribed */
+
+        ELSE IF @show == "ALL" THEN
+         /* Log activity (Scenario 6) even if no audit */
+            SET @insertActivity = InsertDE("Preference_Page_Activity_Log",           
+                       "Salesforce_ID", @Salesforce_ID,
+                       "EmailAddress", @email,
+                       "Preference_ID", @checkbox_select,
+                       "Initiated_By", @initiatedBy,
+                       "Source", "Preference Page",
+                       "Enrollment_Type", "KPMG-Enrolled (Account Team)",
+                       "CampaignID", @CID,
+                       "JobID", @JOBID,
+                       "GUID", @guid_ref)
+
+        ENDIF /*  END of IF @show == "ALL" */
+      ENDIF /*  END of IF @show != "ALL" */
+
+    ELSE
+      /* --- CASE B: Preference is NOT preselected (new subscription) --- */
+
+      IF @checkbox_select != @Unsub THEN
+
+        /* Standard behavior: insert audit and insert subscriber preference record
+           Include ConfirmedEnrollmentDate (for subscriber flows) and LastModifiedDate, and delete any unsubscriber records */
+
+        IF @show != "ALL" THEN
+          /* Self-Enrolled insertion for user flows */
+          SET @insert = InsertDE("Audit_Preferences",
+                     "Salesforce_ID", @Salesforce_ID,
+                     "EmailAddress", @email,
+                     "Preference_ID", @checkbox_select,
+                     "Date", @now,
+                     "InsertDate", @now,
+                     "Initiated_By", @initiatedBy,
+                     "Activity", "Subscribed",
+                     "Enrollment_Type", "Self-Enrolled",
+                     "Campaign_Origin", @Campaign_Origin,
+                     "Source", "Preference Page",
+                     "CampaignID", @CID,
+                     "JobID", @JOBID)
+
+          /* Insert into Subscriber_Preferences_Email including ConfirmedEnrollmentDate and LastModifiedDate */
+          SET @insert2 = InsertDE("Subscriber_Preferences_Email",
+                     "Salesforce_ID", @Salesforce_ID,
+                     "EmailAddress", @email,
+                     "Preference_ID", @checkbox_select,
+                     "Enrollment_Type", "Self-Enrolled",
+                     "Date", @now,
+                     "ConfirmedEnrollmentDate", @confirmedDate,
+                     "LastModifiedDate", @lastModifiedDate,
+                     "Preference_Enrollment", @Preference_Enrollment2,
+                     "Initiated_By", @initiatedBy,
+                     "Source", "Preference Page",
+                     "CampaignID", @CID,
+                     "JobID", @JOBID)
+
+          /* Delete any prior unsubscriber record for the preference */
+          SET @delete = DeleteData("Unsubscriber_Preferences_Email", "Preference_Unenrollment", @Preference_Enrollment2)
+          
+          /* Log activity for this new preference insert (Scenario 1 & Scenario 6) */
+        SET @insertActivity = InsertDE("Preference_Page_Activity_Log",
+                   "Salesforce_ID", @Salesforce_ID,
+                   "EmailAddress", @email,
+                   "Preference_ID", @checkbox_select,
+                   "Initiated_By", @initiatedBy,
+                   "Source", "Preference Page",
+                   "ConfirmedEnrollmentDate", @confirmedDate,
+                   "LastModifiedDate", @lastModifiedDate,
+                   "Enrollment_Type", IIF(@show == "ALL", "KPMG-Enrolled (Account Team)", "Self-Enrolled"),
+                   "CampaignID", @CID,
+                   "JobID", @JOBID,
+                   "GUID", @guid_ref)
+                   
+        ELSE
+          /* KPMG-Enrolled insertion for Sales Cloud / account-team flows
+             Per new AC: Do NOT set ConfirmedEnrollmentDate on Sales Cloud insert.
+             Set LastModifiedDate to @lastModifiedDate. */
+          SET @insert = InsertDE("Audit_Preferences",
+                     "Salesforce_ID", @Salesforce_ID,
+                     "EmailAddress", @email,
+                     "Preference_ID", @checkbox_select,
+                     "Date", @now,
+                     "InsertDate", @now,
+                     "Initiated_By", @initiatedBy,
+                     "Activity", "Subscribed",
+                     "Enrollment_Type", "KPMG-Enrolled (Account Team)",
+                     "Source", "Preference Page",
+                     "CampaignID", @CID,
+                     "JobID", @JOBID)
+
+          SET @insert2 = InsertDE("Subscriber_Preferences_Email",
+                     "Salesforce_ID", @Salesforce_ID,
+                     "EmailAddress", @email,
+                     "Preference_ID", @checkbox_select,
+                     "Enrollment_Type", "KPMG-Enrolled (Account Team)",
+                     "Date", @now,
+                     "LastModifiedDate", @lastModifiedDate,
+                     "Preference_Enrollment", @Preference_Enrollment2,
+                     "Initiated_By", @initiatedBy,
+                     "Source", "Preference Page",
+                     "CampaignID", @CID,
+                     "JobID", @JOBID)
+
+          SET @delete = DeleteData("Unsubscriber_Preferences_Email", "Preference_Unenrollment", @Preference_Enrollment2)
+          
+          /* Log activity for this new preference insert (Scenario 1 & Scenario 6) */
+        SET @insertActivity = InsertDE("Preference_Page_Activity_Log",
+                   "Salesforce_ID", @Salesforce_ID,
+                   "EmailAddress", @email,
+                   "Preference_ID", @checkbox_select,
+                   "Initiated_By", @initiatedBy,
+                   "Source", "Preference Page",
+                   "LastModifiedDate", @lastModifiedDate,
+                   "Enrollment_Type", IIF(@show == "ALL", "KPMG-Enrolled (Account Team)", "Self-Enrolled"),
+                   "CampaignID", @CID,
+                   "JobID", @JOBID,
+                   "GUID", @guid_ref)
+        ENDIF
+
+/*Check IF entry exists in Unsubscribe from All Preferences DE and then remove it and update Privacy Consent Status to Optin- 12893 */
+              VAR @ConsentStatusVal
+              SET @IsStatusupdate = "FALSE"
+              SET @Existing_subscriber_Rows = RetrieveSalesforceObjects("ContactPointEmail", "KPMG_Lead_Contact_Id__c", "EmailAddress", "=", @email)
+              IF RowCount(@Existing_subscriber_Rows) > 0 THEN
+                SET @Existing_Salesforce_ID = Field(Row(@Existing_subscriber_Rows, 1), "KPMG_Lead_Contact_Id__c")
+                IF Substring(@Existing_Salesforce_ID, 1, 3) == "003" THEN
+                  SET @Individual_Firm_Details_Rows = RetrieveSalesforceObjects("KPMG_Individual_Firm_Details__c", "id,KPMG_Consent_Status__c", "KPMG_ContactId__c", "=", @Existing_Salesforce_ID)
+                  IF RowCount(@Individual_Firm_Details_Rows) > 0 THEN
+                    SET @ConsentStatusVal = Field(Row(@Individual_Firm_Details_Rows, 1), "KPMG_Consent_Status__c")
+                    IF @ConsentStatusVal == "Opt Out" THEN
+                      SET @IsStatusupdate ="True"
+                      SET @updateRecord = UpdateSingleSalesforceObject("KPMG_Individual_Firm_Details__c", Field(Row(@Individual_Firm_Details_Rows, 1), "id"), "KPMG_Consent_Status__c", "Opt In")
+                    ENDIF  
+                  ENDIF 
+                ELSE
+                  SET @Individual_Firm_Details_Rows = RetrieveSalesforceObjects("KPMG_Individual_Firm_Details__c", "id,KPMG_Consent_Status__c", "KPMG_LeadId__c", "=", @Existing_Salesforce_ID)
+                  IF RowCount(@Individual_Firm_Details_Rows) > 0 THEN
+                    SET @ConsentStatusVal = Field(Row(@Individual_Firm_Details_Rows, 1), "KPMG_Consent_Status__c")
+                    IF @ConsentStatusVal == "Opt Out" THEN
+                      SET @IsStatusupdate ="True"
+                      SET @updateRecord = UpdateSingleSalesforceObject("KPMG_Individual_Firm_Details__c", Field(Row(@Individual_Firm_Details_Rows, 1), "id"), "KPMG_Consent_Status__c", "Opt In")
+                      /* SET @deleteCount = DeleteData("Unsubscribe_From_All_Preferences","EmailAddress", @email) */ /* --- IT SHOULD BE OUTSIDE, to delete email from unsuball de when @Selected > 0 */
+                    ENDIF  
+                  ENDIF  
+                ENDIF /*ENDIF FOR IF Substring(@Salesforce_ID, 1, 3) == "003" THEN */
+              ENDIF 
+
+              SET @AssociatedEmailAddressList = RetrieveSalesforceObjects("ContactPointEmail", "EmailAddress", "KPMG_Lead_Contact_Id__c", "=", @Existing_Salesforce_ID,"EmailAddress", "!=", @email)
+
+              IF (@IsStatusupdate) AND RowCount(@AssociatedEmailAddressList) > 0 THEN
+                FOR @counter = 1 TO RowCount(@AssociatedEmailAddressList) DO
+                  SET @deleteCount1 = DeleteData("Unsubscribe_From_All_Preferences","EmailAddress", Field(Row(@AssociatedEmailAddressList, @counter), "EmailAddress"))
+                  SET @deleteCount2 = DeleteData("Unsubscriber_Preferences_Email","EmailAddress", Field(Row(@AssociatedEmailAddressList, @counter), "EmailAddress"))
+                  SET @AssociatedEmail = Field(Row(@AssociatedEmailAddressList, @counter), "EmailAddress")
+                  /* START GSENHANCEM-16407 change the status 12893 */ 
+                  SET @mysub1 = CreateObject("Subscriber")
+                  SetObjectProperty(@mysub1, "Status", "Active")
+                  SetObjectProperty(@mysub1, "SubscriberKey", @AssociatedEmail)
+                  SET @statusCode1 = InvokeUpdate(@mysub1)
+                  /* End GSENHANCEM-16407, change the status 12893 */ 
+                  SET @insert3 = InsertDE("Audit_Preferences", "Salesforce_ID", @Existing_Salesforce_ID, "EmailAddress", @AssociatedEmail, "Date", Now(), "Initiated_By", @Name, "Activity", "Subscribed", "Enrollment_Type", "Self-Enrolled", "Source", "Preference Page", "CampaignID", @CID, "JobID", @JOBID)
+                NEXT @counter
+              ENDIF
+
+              /* Updating allsubs status to Active using Salesforceid as subscriberkey 12893 */ 
+              VAR @SubsKey3, @mysub3
+              SET @SubsKey3 = @Existing_Salesforce_ID
+              SET @mysub3 = CreateObject("Subscriber")
+              SetObjectProperty(@mysub3, "Status", "Active")
+              SetObjectProperty(@mysub3, "SubscriberKey", @SubsKey3)
+              SET @statusCode3 = InvokeUpdate(@mysub3)
+              /* Updating allsubs status to Active using email as subscriberkey 12893 */  
+              SET @SubsKey3 = @email
+              SET @mysub3 = CreateObject("Subscriber")
+              SetObjectProperty(@mysub3, "Status", "Active")
+              SetObjectProperty(@mysub3, "SubscriberKey", @SubsKey3)
+              SET @statusCode3 = InvokeUpdate(@mysub3) 
+              /* END GSENHANCEM-12893 */
+            ENDIF /* @checkbox_select != @Unsub */
+          ENDIF /* ENDIF FOR IndexOf(@PreSelected, @checkbox_select) */
+        ENDIF 
+      NEXT @i1
+    ENDIF
+  ENDIF /* END of IF @Unsuball != "true" */
+]%% 
+  
+<script>
+  window.onload = function() {
+    // similar behavior as an HTTP redirect
+    window.location.replace("%%=v(@qs1)=%%");
+  }
+  function goBack() {
+    window.location.replace("%%=v(@qs1)=%%");
+  }
+</script>
+
+<script runat="server">
+} catch(err) { 
+    //VARErrormessageval = Stringify(err).substring(0,3999);
+    //VARrows = Platform.Function.InsertData("Centralized_Form_Processor_DE_Error_Log",["Source","ErrorMessage"],["Preference Processor",Errormessageval]);
+    //window.location.replace("https://www.kpmg.us/errors/500.html");
+    Redirect("https://www.kpmg.us/errors/500.html", false);
+}
+</script>
