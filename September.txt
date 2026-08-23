@@ -1,0 +1,50 @@
+Build API credential encryption tool to automatically encrypt and manage client secrets
+
+Description
+
+As the technical product manager, I want an API credential encryption tool developed, so that it can be used to generate encrypted Marketing Cloud API credentials and manage the creation and update of client secrets. Salesforce has recently enforced a 180-day expiration for client secrets.
+
+View all details here on action items from the previous Spike.
+
+BACKGROUND: API_Details data extension is used to store encrypted detail for each installed package that is leverage by our API solutions // Currently I see another DE that also holds this type of data – consolidate and move to appropriate folder
+
+SCENARIO 1: Secure the CloudPage encryption tool // Scenarios are based on provide solution approach outlined the attached document
+GIVEN the CloudPage requires credentials to proceed
+WHEN the user enters the correct credentials
+THEN they can proceed with the following scenarios
+BUT [TBD what to do] if the incorrect credentials are entered
+
+SCENARIO 2: Adding a new installed package
+GIVEN the required credentials have been provided
+WHEN the option to add a new package is selected
+THEN the following input fields will be available:
+-API Name (Package Name)
+-Client ID - AES encrypted before storing
+-Client Secret - AES encrypted before storing
+-Authentication Base URL - AES encrypted before storing
+-REST Base URL - AES encrypted before storing
+-Client Secret Expiration Date
+-Business Unit
+-Scope
+AND the following will be added as a new record in the API_Details DE:
+-API Name
+-Encrypted Client ID - AES encrypted
+-Encrypted Client Secret - AES encrypted
+-Encrypted Authentication Base URL - AES encrypted
+-Encrypted REST Base URI - AES encrypted
+-Business Unit
+-Scope
+-Client Secret Expiration Date
+-Last Modified Date
+
+SCENARIO 3: Updating an existing installed package
+GIVEN the required credentials have been provided
+WHEN the option to update an existing installed package has been selected
+THEN input fields will be available for the following:
+-API Name (Package Name)
+-New Client Secret - AES encrypted before storing
+-New Client Secret Expiration Date
+AND the following fields will be updated in the API_Details DE for the appropriate record based on API Name:
+-Encrypted Client Secret - AES encrypted
+-Client Secret Expiration Date
+-Last Modified Date
