@@ -1,0 +1,88 @@
+%%[
+  /* ===================================================================
+     CLOUDPAGE DIAGNOSTIC — publish this as a NEW, separate CloudPage.
+     No try/catch anywhere on purpose, so nothing can hide the error.
+
+     Each numbered line only prints if everything above it survived.
+     The LAST number you see is the last thing that worked.
+     The failing statement is the very next one.
+     =================================================================== */
+  VAR @email, @run, @enc, @rs, @rowCount, @null
+  SET @null  = ""
+  SET @run   = RequestParameter('run')
+  SET @email = Trim(RequestParameter('txtEmailAddress'))
+]%%
+<html>
+<body style="font-family:Consolas,monospace; font-size:14px; padding:24px; line-height:1.8">
+
+<h3>CloudPage Diagnostic</h3>
+
+<div>1 OK &mdash; AMPscript VAR / SET works.</div>
+<div>2 OK &mdash; RequestParameter + Trim work. email=[%%=v(@email)=%%] run=[%%=v(@run)=%%]</div>
+
+<script runat="server">
+Platform.Load("Core","1.1.1");
+Write("<div>3 OK &mdash; Platform.Load and Write work.</div>");
+
+var raw = Request.GetFormField("txtEmailAddress");
+Write("<div>4 OK &mdash; Request.GetFormField works. value=[" + raw + "]</div>");
+
+var qsRun = Request.GetQueryStringParameter("run");
+Write("<div>5 OK &mdash; Request.GetQueryStringParameter works. value=[" + qsRun + "]</div>");
+
+var got = Variable.GetValue("@email");
+Write("<div>6 OK &mdash; Variable.GetValue works. value=[" + got + "]</div>");
+
+Write("<div>7 OK &mdash; Platform.Function.Trim works. [" + Platform.Function.Trim("  spaced  ") + "]</div>");
+
+Variable.SetValue("@email", "written-back");
+Write("<div>8 OK &mdash; Variable.SetValue works.</div>");
+</script>
+
+<div>9 OK &mdash; reading back after SetValue: [%%=v(@email)=%%]</div>
+
+<!-- ============ THE RISKY CALLS — one at a time, via ?run= ============ -->
+
+%%[ IF @run == "encrypt" THEN
+      SET @enc = EncryptSymmetric("hello","AES",@null,"password",@null,"0000000000000000",@null,"00000000000000000000000000000000")
+]%%
+    <div>10 OK &mdash; EncryptSymmetric works. [%%=v(@enc)=%%]</div>
+%%[ ENDIF ]%%
+
+%%[ IF @run == "sfdc" THEN
+      SET @rs = RetrieveSalesforceObjects("User","Id,Email,IsActive","Email","=",@email)
+      SET @rowCount = RowCount(@rs)
+]%%
+    <div>11 OK &mdash; RetrieveSalesforceObjects works. rows=%%=v(@rowCount)=%%</div>
+%%[ ENDIF ]%%
+
+<script runat="server">
+var r = Request.GetQueryStringParameter("run");
+
+if (r == "lookup") {
+  var hit = Platform.Function.Lookup("ENT.API_Details_GEE-61699","API Name","API Name","no-such-package-xyz");
+  Write("<div>12 OK &mdash; Lookup on the details DE works. result=[" + hit + "]</div>");
+}
+
+if (r == "audit") {
+  Platform.Function.InsertData(
+    "ENT.API_Credential_Audit_Log",
+    ["AuditID","ActionType","PackageName","PerformedBy","ActionDate","Status"],
+    [Platform.Function.GUID(), "Test", "DIAGNOSTIC", "diag@test.com", Platform.Function.Now(), "Success"]
+  );
+  Write("<div>13 OK &mdash; InsertData on the audit DE works. Check the DE for a DIAGNOSTIC row.</div>");
+}
+</script>
+
+<hr>
+<p>Run these URLs in order:</p>
+<ol>
+  <li>the plain page URL (expects 1&ndash;9)</li>
+  <li>?run=encrypt</li>
+  <li>?run=lookup</li>
+  <li>?run=audit</li>
+  <li>?run=sfdc&amp;txtEmailAddress=your.name@kpmg.com</li>
+</ol>
+
+</body>
+</html>
