@@ -1,0 +1,63 @@
+Implement Journey Builder Cleanup (GEE-26092)
+
+Description
+
+As the email marketing lead, I would like recommendations to automating cleanup Journey Builder with approval processes, so that we can delete items that are no longer needed by the team.
+
+Acceptance Criteria
+
+
+SCENARIO 1: Create Journey Deletion Exclusion List
+GIVEN some journeys may not run consistently due to fluctuations for some campaigns
+WHEN Journey Deletion Exclusion data extension is created
+THEN any journeys that contain "_AR_" and "_NT_" are added to the data extension // More journeys will be added by the business as needed
+
+SCENARIO 2: Identify journeys sent more than 180 days ago
+GIVEN there are no automated journey deletion process in place
+WHEN a journey is sent more than 180 days // All emails for multi-send journeys need to meet this requirement
+AND it is not on the exclusion list
+THEN stop the journey and automatically move the journey into Journey Cleanup Review folder (keep outside of Recycle Bin)
+AND this will be evaluated at the first the month
+AND Cedric Bastian will be sent an email notification indicating that the Journey Cleanup Review folder is ready for review
+
+SCENARIO 3: Stop and move journeys in the Recycle Bin folder
+GIVEN there are journeys that exist in the Journey Cleanup Review folder
+WHEN the last day of the month occurs
+THEN stop all journeys in the Journey Cleanup Review
+AND move these journeys to the Recycle Bin folder
+
+SCENARIO 4: Delete journeys in the Recycle Bin folder
+GIVEN there are journeys that exist in the Recycle Bin folder
+WHEN the first day of the month occurs
+THEN delete all journeys in the Recycle Bin folder2
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+First Month
+Scenario 3 (Last day of month)
+Stop journeys in Journey Cleanup Review.
+Move them to Recycle Bin.
+Send email: "These journeys will be deleted tomorrow."
+Scenario 4 (1st day of next month)
+Delete journeys currently in Recycle Bin.
+At this point, those journeys are gone.
+Same Automation Run Continues with Scenario 1 & 2
+After the old Recycle Bin journeys are deleted, Scenarios 1 & 2 identify the next set of candidate journeys and move them into Journey Cleanup Review.
+Then Cedric receives an email saying something like:
+"The following journeys have been moved to Journey Cleanup Review and require review."
+That gives him the entire month to review them before they are moved to Recycle Bin at the end of the month.
+So the timeline becomes
+1st of Month
+Delete previous month's Recycle Bin journeys.
+Run Scenario 1 & 2.
+Move newly identified journeys to Journey Cleanup Review.
+Send email to Cedric.
+✅ Cedric gets ~30 days to review.
+Last Day of Month
+Move unreviewed journeys from Journey Cleanup Review to Recycle Bin.
+Send warning email.
+✅ "These will be deleted tomorrow."
+1st of Next Month
+Delete Recycle Bin journeys.
+Repeat cycle.
+So yes, if Scenario 1 & 2 are already running on the 1st of the month, the notification generated there effectively gives Cedric a full month to review. You don't need a separate "30-day review" notification automation. The review email naturally becomes part of the monthly identification process.
