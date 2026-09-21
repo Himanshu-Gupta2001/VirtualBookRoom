@@ -9,13 +9,14 @@
   VAR @sessionValid, @authOK, @authFatal, @authDebug, @authDebugMode, @sessionHours, @selfTestDecrypted, @selfTestResult
   VAR @showDiag
   VAR @postAuthURL   /* v9: retained, no longer used */
+  VAR @rtIn, @refreshToken   /* v20: Salesforce refresh token - backup proof of sign-in */
 
 /* ============================================================================
    >>>>>>>>>>>>>>>>>>  STEP 1 OF 4: FILL THESE THREE IN  <<<<<<<<<<<<<<<<<<<<<<
    ============================================================================ */
 
   SET @authTenant       = "mchhklk0drvdbjf-g54n6vj27bky"
-  SET @authPageURL      = "https://cloud.email.kpmgus.com/API_Credential_Encryption_Tool_UAT"
+  SET @authPageURL      = "https://mchhklk0drvdbjf-g54n6vj27bky.pub.sfmc-content.com/42co0xr2nit"
 
   /* This tool authenticates against Marketing Cloud using ITS OWN installed
      package. That package's Client Id / Client Secret are no longer hardcoded
@@ -95,6 +96,14 @@
   IF EMPTY(@code)          THEN SET @code          = "" ENDIF
   IF EMPTY(@rawSessionKey) THEN SET @rawSessionKey = "" ENDIF
   IF EMPTY(@mcUserEmail)   THEN SET @mcUserEmail   = "" ENDIF
+
+  /* v20: the refresh token Marketing Cloud gave us at sign-in, posted back in
+     a hidden field. If the session key above is ever rejected, BLOCK 0b asks
+     Marketing Cloud itself to confirm the sign-in with this token instead of
+     throwing the user back to the sign-in screen. */
+  SET @rtIn = RequestParameter("rtk")
+  IF EMPTY(@rtIn) THEN SET @rtIn = "" ENDIF
+  SET @refreshToken = @rtIn
 
   /* ---- TRANSPORT-SAFE KEY --------------------------------------------- */
   SET @passedSessionKey = @rawSessionKey
@@ -186,7 +195,10 @@ var g_pageUrl  = Variable.GetValue("@authPageURL");
 var g_mcEmail  = Variable.GetValue("@mcUserEmail");
 var g_dbg      = Variable.GetValue("@authDebug");
 var g_tokenRaw = "";
+var g_rt       = Variable.GetValue("@rtIn");
+var g_newRt    = "";
 
+if (g_rt      == null) { g_rt      = ""; }
 if (g_code    == null) { g_code    = ""; }
 if (g_mcEmail == null) { g_mcEmail = ""; }
 if (g_dbg     == null) { g_dbg     = ""; }
@@ -236,6 +248,38 @@ if (!g_authOK && String(g_code) != "") {
   }
 }
 
+/* ---- v20 TRY 1b: BACKUP CHECK - refresh token -----------------------------
+   Runs ONLY when there is no ?code AND the session key was rejected - i.e.
+   exactly the "Save Securely lands on the sign-in notice" case. Marketing
+   Cloud itself validates the token, so this does not depend on page timestamps
+   or server clocks at all. A 200 is proof of a genuine signed-in user, same
+   rule as TRY 1. The response also carries a fresh access token, so TRY 2
+   below re-reads the verified email address from /v2/userinfo. */
+if (!g_authOK && String(g_code) == "" && String(g_rt) != "") {
+  try {
+    var rtBody = '{"grant_type":"refresh_token"';
+    rtBody += ',"refresh_token":"' + jsonSafe(g_rt)       + '"';
+    rtBody += ',"client_id":"'     + jsonSafe(g_clientId) + '"';
+    rtBody += ',"client_secret":"' + jsonSafe(g_secret)   + '"}';
+
+    var rtUrl = "https://" + g_tenant + ".auth.marketingcloudapis.com/v2/token";
+    var rtRes = HTTP.Post(rtUrl, "application/json", rtBody);
+
+    if (rtRes != null && rtRes.StatusCode == 200) {
+      g_authOK = true;
+      if (rtRes.Response != null && rtRes.Response.length > 0) {
+        g_tokenRaw = String(rtRes.Response[0]);
+      }
+      g_dbg = g_dbg + " | refresh=200";
+    } else {
+      g_dbg = g_dbg + " | refresh=" + (rtRes == null ? "null" : String(rtRes.StatusCode));
+    }
+  } catch (rtEx) {
+    g_authOK = false;
+    g_dbg = g_dbg + " | refresh threw: " + (rtEx.message != null ? rtEx.message : String(rtEx));
+  }
+}
+
 /* ---- TRY 2 of 2: who is the logged-in Marketing Cloud user? ---------------
    Purely cosmetic - it pre-fills the email box so the user does not have to
    type it. If any part of this fails the page carries on exactly as before.
@@ -244,6 +288,12 @@ if (g_authOK && g_tokenRaw != "") {
   try {
     var tj = Platform.Function.ParseJSON(g_tokenRaw);
     var at = (tj != null) ? tj.access_token : null;
+
+    /* v20: keep the refresh token Marketing Cloud just issued. Carried forward
+       in a hidden field so the next Save / Do Another has a backup proof. */
+    if (tj != null && tj.refresh_token != null && String(tj.refresh_token) != "") {
+      g_newRt = String(tj.refresh_token);
+    }
     g_dbg = g_dbg + " | tokenParsed=" + (tj == null ? "null" : "yes")
                   + " | accessToken=" + ((at == null || String(at) == "") ? "MISSING" : "present");
 
@@ -283,6 +333,7 @@ if (g_authOK && g_tokenRaw != "") {
 }
 
 Variable.SetValue("@authOK",      g_authOK ? "true" : "false");
+Variable.SetValue("@refreshToken", (g_newRt != "") ? g_newRt : g_rt);
 Variable.SetValue("@mcUserEmail", g_mcEmail);
 Variable.SetValue("@authDebug",   g_dbg);
 </script>
@@ -329,6 +380,9 @@ Variable.SetValue("@authDebug",   g_dbg);
     SET @authFatal = "true"
 
   ELSEIF @authOK != "true" THEN
+
+    /* v20: nothing proven - do not echo any token back into this page. */
+    SET @refreshToken = ""
 
     IF @code != "" THEN
       SET @authFatal = "true"
@@ -682,6 +736,11 @@ try {
   dbgStep = "read-query-string";
 
   mcUserEmail   = av("@mcUserEmail");
+
+  /* v20: if the posted email box came through empty, use the address
+     Marketing Cloud verified at sign-in instead of rejecting the Save. */
+  if (len(emailAddress) == 0 && len(mcUserEmail) > 0) { emailAddress = mcUserEmail; }
+
   sessionKeyUrl = Variable.GetValue("@sessionKeyUrl");
   if (sessionKeyUrl == null) { sessionKeyUrl = ""; }
 
@@ -725,13 +784,19 @@ try {
 
     dbgStep = "submit-branch";
 
-    if (len(emailAddress) == 0 || !isValidUser) {
+    if (!isValidUser) {
 
-      errorMsg = "Please enter your email address before saving.";
+      /* v20: separate message - this is a sign-in problem, not an email one. */
+      errorMsg = "Your Marketing Cloud sign-in could not be confirmed, so nothing was saved. Please sign in again and re-enter the details.";
       renderStep = "email";
       if (len(emailAddress) > 0) {
         queueAudit("Access Denied", "", "", emailAddress, "Failed", "Submit received without a proven Marketing Cloud session");
       }
+
+    } else if (len(emailAddress) == 0) {
+
+      errorMsg = "Please enter your email address before saving.";
+      renderStep = "email";
 
     // ---- PATH A: Add a new package ---------------------------------------
     } else if (mode == "add") {
@@ -1305,6 +1370,8 @@ trace("14 ssjs block completed normally");
            ================================================================== -->
       <input type="hidden" name="sessionkey" value="%%=v(@sessionKeyUrl)=%%">
       <input type="hidden" name="mcuser"     value="%%=v(@mcUserEmail)=%%">
+      <!-- v20: backup proof of sign-in, checked by Marketing Cloud itself. -->
+      <input type="hidden" name="rtk"        value="%%=v(@refreshToken)=%%">
 
       <!-- ============ SCREEN 1: EMAIL VERIFICATION ============ -->
       <div class="screen" id="screen-email">
@@ -1442,6 +1509,16 @@ trace("14 ssjs block completed normally");
       </div>
 
     </form>
+
+    <!-- v20: "Do Another" posts THIS small form instead of reloading the bare
+         URL. It carries the same proof of sign-in as Save, so the user goes
+         straight back to the welcome screen with no second Marketing Cloud
+         sign-in. No btnSubmit / btnVerify in it, so nothing is saved. -->
+    <form id="restartForm" method="post" action="%%=v(@PageURL)=%%" style="display:none;">
+      <input type="hidden" name="sessionkey" value="%%=v(@sessionKeyUrl)=%%">
+      <input type="hidden" name="mcuser"     value="%%=v(@mcUserEmail)=%%">
+      <input type="hidden" name="rtk"        value="%%=v(@refreshToken)=%%">
+    </form>
   </div>
 </div>
 
@@ -1521,7 +1598,10 @@ trace("14 ssjs block completed normally");
        exactly what a first-time visitor hits - so BLOCK 0 treats it as a
        completely fresh sign-in: same interstitial, same code exchange, same
        brand-new session key as the very first time the page was opened. */
-    window.location.href = "%%=v(@authPageURL)=%%";
+    /* v20: post the small restart form (same sign-in proof as Save). If for
+       any reason it is missing, fall back to the old full sign-in. */
+    var rf = document.getElementById('restartForm');
+    if (rf) { rf.submit(); } else { window.location.href = "%%=v(@authPageURL)=%%"; }
   }
 
   /* Decide which screen to show, based on what the server logic worked out. */
