@@ -1,1 +1,136 @@
 TreatAsContent/DecryptSymmetric failed: An error occurred when attempting to evaluate a TreatAsContent function call. See inner exception for details. | ExactTarget.OMM.FunctionExecutionException: An error occurred when attempting to evaluate a TreatAsContent function call. See inner exception for details. Error Code: OMM_FUNC_EXEC_ERROR - from Jint --> --- inner exception 1--- ExactTarget.OMM.FunctionExecutionException: An error occurred when attempting to evaluate a DecryptSymmetric function call. See inner exception for details. Error Code: OMM_FUNC_EXEC_ERROR - from OMMCommon --> --- inner exception 2--- System.FormatException: Invalid length for a Base-64 char array or string. - from mscorlib
+
+
+
+<script runat="server">
+Platform.Load("core","1");
+
+var tokentimeval = 1500;
+var dne_etAccessToken =getTokenvalue();
+  
+var dataExtensionName = '66691A70-099A-41E4-A3D4-3AC8BC0854A4';  // All_Subscribers_Held_Update
+
+
+// Fetch rows from the data extension
+var dataExtension = DataExtension.Init(dataExtensionName);
+
+var filter = {
+    Property: 'IsRecordUpdated',  // Replace with your column name
+    SimpleOperator: 'equals',  // Operator (e.g., 'equals', 'like', etc.)
+    Value: 'False'  // Replace with the value you're searching for
+};
+var retrievedRows = dataExtension.Rows.Retrieve(filter);
+
+// Check if records are found and output them
+if (retrievedRows.length > 0) {
+    // Loop through each retrieved row and display data
+    for (var i = 0; i < retrievedRows.length; i++) {
+        var row = retrievedRows[i];
+        var email = row.EmailAddress;  // Replace with the actual column you want to fetch
+        var SubscriberKey = row.SubscriberKey; // Example for another column
+        var IsRecordUpdated = row.IsRecordUpdated;
+
+        // Output the data (replace with actual fields you want to fetch)
+        Write('Email: ' + email + ', SubscriberKey: ' + SubscriberKey + ', IsRecordUpdated: ' + IsRecordUpdated + '<br>');
+      
+        
+if(tokentimeval<10)
+{
+ tokentimeval = 1500;
+  dne_etAccessToken =getTokenvalue();
+}
+      
+try{
+var payload = '';
+var endpoint = "https://mchhklk0drvdbjf-g54n6vj27bky.soap.marketingcloudapis.com/Service.asmx";
+var result;
+var et_subdomain='mchhklk0drvdbjf-g54n6vj27bky'
+    payload += '<?xml version="1.0" encoding="UTF-8"?>';
+payload += '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">';
+payload += '   <s:Header>';
+payload += '      <a:Action s:mustUnderstand="1">Create</a:Action>';
+payload += '         <a:To s:mustUnderstand="1">https://'+et_subdomain+'.soap.marketingcloudapis.com/Service.asmx</a:To>';
+payload += '            <fueloauth xmlns="http://exacttarget.com">'+dne_etAccessToken+'</fueloauth>';
+payload += '   </s:Header>';
+payload += '   <s:Body xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">';
+payload += '        <UpdateRequest xmlns="http://exacttarget.com/wsdl/partnerAPI">';
+payload += '             <Options/>';                     
+payload += '                <Objects xsi:type="Subscriber">';
+payload += '                <SubscriberKey>'+SubscriberKey+'</SubscriberKey>';
+payload += '                <Status>Held</Status>';
+payload += '                </Objects>';
+payload += '                </UpdateRequest>';
+payload += '                </s:Body>';
+payload += '</s:Envelope>';
+
+
+    result = HTTP.Post(endpoint,"text/xml",payload);
+    
+    var rows = Platform.Function.UpdateDE("All_Subscribers_Held_Update",["SubscriberKey"],[SubscriberKey],["IsRecordUpdated"],["True"]);
+     
+
+    //result = {StatusCode:500,Response:Stringify(e)};
+}
+catch(e) {
+    Write('In catch block '+Stringify(e));  
+}
+
+if (result.StatusCode != 200) {
+ 
+ Write('In if block '+result.StatusCode);  
+    //Bad response
+    Write(Stringify(result));
+} else {
+   
+   Write('In else block '+Stringify(result));  
+}
+
+tokentimeval = tokentimeval-10;
+    }
+} 
+else {
+    Write('No records found.');
+}
+function decryptSymmetric(str) {
+        Variable.SetValue("@ToDecrypt", str)
+        var scr = "";
+            scr += "\%\%[";
+            scr += "SET @Decrypted = DecryptSymmetric(@ToDecrypt, 'AES', @null, 'password', @null, '0000000000000000', @null, '00000000000000000000000000000000')";
+            scr += "Output(Concat(@Decrypted))";
+            scr += "]\%\%";
+        return Platform.Function.TreatAsContent(scr);
+    } 
+
+function getTokenvalue()
+{
+ try{
+    
+    var authpayload = '{"grant_type":"client_credentials",';
+            authpayload += '"client_id":"';
+            authpayload += decryptSymmetric(Platform.Function.Lookup("ENT.API_Details","Encrypted Client Id","API Name","UAT_DEFAULT_API"));
+            authpayload += '",';
+            authpayload += '"client_secret":"';
+            authpayload += decryptSymmetric(Platform.Function.Lookup("ENT.API_Details","Encrypted Client Secret","API Name","UAT_DEFAULT_API"));
+            authpayload += '",';
+            authpayload += '"account_id":"514015912"}';
+      var OAuth2URL = "https://mchhklk0drvdbjf-g54n6vj27bky.auth.marketingcloudapis.com/v2/token";
+      var contentType = 'application/json';
+      var accessTokenResult = HTTP.Post(OAuth2URL, contentType, authpayload);
+      var tokenObj = Platform.Function.ParseJSON(accessTokenResult["Response"][0]);
+      var accessToken = tokenObj.access_token;
+      var auth = "Bearer " + accessToken;
+  
+   Write('accessTokenResult '+Stringify(tokenObj));
+     Write('accessToken '+accessToken);
+  
+  return accessToken;
+
+ }
+  catch (err) {
+    Write(Stringify(err));
+ return null;
+}
+
+}
+
+</script>
