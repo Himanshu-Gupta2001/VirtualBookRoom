@@ -1,6 +1,6 @@
 TreatAsContent/DecryptSymmetric failed: An error occurred when attempting to evaluate a TreatAsContent function call. See inner exception for details. | ExactTarget.OMM.FunctionExecutionException: An error occurred when attempting to evaluate a TreatAsContent function call. See inner exception for details. Error Code: OMM_FUNC_EXEC_ERROR - from Jint --> --- inner exception 1--- ExactTarget.OMM.FunctionExecutionException: An error occurred when attempting to evaluate a DecryptSymmetric function call. See inner exception for details. Error Code: OMM_FUNC_EXEC_ERROR - from OMMCommon --> --- inner exception 2--- System.FormatException: Invalid length for a Base-64 char array or string. - from mscorlib
 
-
+Name, External Key, and Description cannot contain illegal characters \ / " : * ? | < >
 
 <script runat="server">
 Platform.Load("core","1");
