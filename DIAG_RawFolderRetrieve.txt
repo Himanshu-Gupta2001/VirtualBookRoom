@@ -1,0 +1,109 @@
+<script runat="server">
+Platform.Load("core", "1.1.1");
+
+/* ==========================================================================
+   MINIMAL DIAGNOSTIC - run as its own Script Activity.
+   Retrieves direct children of PARENT_FOLDER_ID from "DataFolder", writes
+   the RAW stringified API response into Journey_Error_Log (so you can copy
+   it back), and inserts each found ID into Journey_Recycle_Bin_FolderID.
+   No recursion, no filtering, no journey fetch - isolates just this one call.
+   ========================================================================== */
+
+var PARENT_FOLDER_ID = 83179;                         // <<< folder to test
+var errorLogDE   = "Journey_Error_Log";
+var folderIdDE   = "Journey_Recycle_Bin_FolderID";    // field: FolderID
+
+function nowStamp() {
+    var d = new Date();
+    function p(n) { return (n < 10 ? "0" : "") + n; }
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " +
+           p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+}
+
+function logRow(msg, severity) {
+    try {
+        Platform.Function.InsertData(errorLogDE,
+            ["ErrorID", "JourneyID", "JourneyName", "ActivityID", "TriggerID",
+             "OperationType", "ErrorMessage", "RawPayload", "PageNumber",
+             "ItemIndex", "ScriptTimestamp", "Severity"],
+            [Platform.Function.GUID(), "N/A", "N/A", "", "",
+             "DIAG Raw Folder Retrieve", String(msg).substring(0, 4000), "", "",
+             "", nowStamp(), severity || "Info"]);
+    } catch (e) { /* ignore logging failure */ }
+}
+
+/* same RawPayload field but longer, for the raw JSON dump */
+function logRaw(label, payloadObj) {
+    var txt;
+    try { txt = Platform.Function.Stringify(payloadObj); }
+    catch (e) { txt = String(payloadObj); }
+    try {
+        Platform.Function.InsertData(errorLogDE,
+            ["ErrorID", "JourneyID", "JourneyName", "ActivityID", "TriggerID",
+             "OperationType", "ErrorMessage", "RawPayload", "PageNumber",
+             "ItemIndex", "ScriptTimestamp", "Severity"],
+            [Platform.Function.GUID(), "N/A", "N/A", "", "",
+             "DIAG Raw Folder Retrieve", label, txt.substring(0, 4000), "",
+             "", nowStamp(), "Info"]);
+    } catch (e) { /* ignore logging failure */ }
+}
+
+try {
+    var wsApi = new Script.Util.WSProxy();
+
+    /* clear the folder ID DE first so the row count reflects only this run */
+    try {
+        var deRes = wsApi.retrieve("DataExtension", ["CustomerKey", "Name"],
+                                   { Property: "Name", SimpleOperator: "equals", Value: folderIdDE });
+        if (deRes && deRes.Results && deRes.Results.length > 0) {
+            var deKey = deRes.Results[0].CustomerKey;
+            wsApi.performItem("DataExtension", { CustomerKey: deKey }, "ClearData", {});
+            logRow("Cleared " + folderIdDE + " before this run.");
+        } else {
+            logRow("Could not find DE '" + folderIdDE + "' to clear - does it exist with that exact name?", "High");
+        }
+    } catch (clearErr) {
+        logRow("Clear of " + folderIdDE + " failed: " + Stringify(clearErr), "High");
+    }
+
+    logRow("Start. Retrieving DataFolder where ParentFolder.ID = " + PARENT_FOLDER_ID);
+
+    var r = wsApi.retrieve("DataFolder", ["ID", "Name", "ParentFolder.ID", "ContentType"],
+                           { Property: "ParentFolder.ID", SimpleOperator: "equals", Value: PARENT_FOLDER_ID });
+
+    /* dump the entire raw response object so you can see its real shape */
+    logRaw("RAW WSProxy response", r);
+
+    logRow("OverallStatus: " + (r && r.OverallStatus ? r.OverallStatus : "N/A") +
+           " | HasMoreRows: " + (r ? r.HasMoreRows : "N/A") +
+           " | typeof r.Results: " + (r && r.Results ? (r.Results.length !== undefined ? "array, length=" + r.Results.length : "single object") : "none"));
+
+    var results = [];
+    if (r && r.Results) { results = (r.Results.length !== undefined) ? r.Results : [r.Results]; }
+
+    logRow("Normalized results count: " + results.length);
+
+    /* clear and rebuild the folder ID DE with just: main folder + whatever was found here */
+    try {
+        Platform.Function.InsertData(folderIdDE, ["FolderID"], [String(PARENT_FOLDER_ID)]);
+    } catch (e0) {
+        logRow("Could not insert main folder ID into " + folderIdDE + ": " + Stringify(e0), "High");
+    }
+
+    for (var i = 0; i < results.length; i++) {
+        var f = results[i];
+        logRow("Found - ID: " + f.ID + " | Name: " + f.Name + " | ParentFolder.ID: " +
+               (f["ParentFolder.ID"] !== undefined ? f["ParentFolder.ID"] : "N/A") +
+               " | ContentType: " + f.ContentType);
+        try {
+            Platform.Function.InsertData(folderIdDE, ["FolderID"], [String(f.ID)]);
+        } catch (insErr) {
+            logRow("Insert into " + folderIdDE + " failed for ID " + f.ID + ": " + Stringify(insErr), "High");
+        }
+    }
+
+    logRow("Done. " + results.length + " child folder(s) found and (attempted to be) stored, plus the main folder ID.");
+} catch (fatal) {
+    logRow("FAILED: " + (fatal && fatal.message ? fatal.message : Platform.Function.Stringify(fatal)), "High");
+}
+</script>
