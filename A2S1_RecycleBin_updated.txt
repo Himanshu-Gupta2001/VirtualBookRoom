@@ -19,8 +19,7 @@ var CONFIG = {
     encIV          : "00000000000000000000000000000000",
 
     /* ---- Journey Builder folders (values proven in the POC) ---- */
-    /* Recycle Bin folder + every known subfolder ID, hardcoded. */
-    recycleBinCategoryIds   : ["87114"],         // <<< PLACEHOLDER: add each subfolder ID to this list, e.g. ["87114","87201","87245"]
+    recycleBinCategoryId    : "83179",           // <<< confirm this is the correct Recycle Bin folder ID
     cleanupReviewCategoryId : "84685",           // <<< PLACEHOLDER: Production Cleanup Review folder ID
 
     /* ---- Data Extensions (NAMES - External Keys are resolved at run time) */
@@ -416,9 +415,10 @@ function getAllSubfolderIds(parentId) {
     return ids;
 }
 
-/* ------------- live fetch of a hardcoded set of folders into a DE ------------- */
-function fetchFolderIntoDE(folderIds, deName) {
+/* ------------- live fetch of ONE folder (+ all its subfolders) into a DE ------------- */
+function fetchFolderIntoDE(categoryId, deName) {
     if (!ensureToken()) { return; }                       // never clear if we cannot refill
+    var folderIds = getAllSubfolderIds(categoryId);       // folder + every nested subfolder, confirmed via diagnostic
     if (!clearDE(deName)) { return; }                     // Overwrite semantics
     var count = 0;
     forEachJourney(function (j, page, idx) {
@@ -494,7 +494,7 @@ function moveJourneysInDE(deName, targetCategoryId, rowFilter) {
    MAIN - fetch the live contents of the Recycle Bin folder
    ========================================================================== */
 function main() {
-    fetchFolderIntoDE(CONFIG.recycleBinCategoryIds, CONFIG.recycleBinDE);
+    fetchFolderIntoDE(CONFIG.recycleBinCategoryId, CONFIG.recycleBinDE);
 }
 
 try {
