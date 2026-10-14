@@ -1,0 +1,92 @@
+<script runat="server">
+Platform.Load("core", "1.1.1");
+
+/* ==========================================================================
+   DIAGNOSTIC ONLY - run once as its own Script Activity, then delete it.
+   Checks whether WSProxy "DataFolder" returns the child folders of a given
+   parent folder ID. Writes one row per child found into Journey_Error_Log
+   (OperationType = "DIAG Subfolder Check"), plus a summary row, so results
+   are visible without needing Write() output (Automation Studio doesn't
+   show it). Also recurses one extra level so you can see grandchildren.
+   ========================================================================== */
+
+var PARENT_FOLDER_ID = 87114;        // <<< the Recycle Bin folder ID to test
+var errorLogDE = "Journey_Error_Log";
+
+function nowStamp() {
+    var d = new Date();
+    function p(n) { return (n < 10 ? "0" : "") + n; }
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " +
+           p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+}
+
+function logRow(msg, severity) {
+    try {
+        Platform.Function.InsertData(errorLogDE,
+            ["ErrorID", "JourneyID", "JourneyName", "ActivityID", "TriggerID",
+             "OperationType", "ErrorMessage", "RawPayload", "PageNumber",
+             "ItemIndex", "ScriptTimestamp", "Severity"],
+            [Platform.Function.GUID(), "N/A", "N/A", "", "",
+             "DIAG Subfolder Check", String(msg).substring(0, 4000), "", "",
+             "", nowStamp(), severity || "Info"]);
+    } catch (e) { /* ignore logging failure for a diagnostic run */ }
+}
+
+function arrayContains(arr, val) {
+    for (var i = 0; i < arr.length; i++) { if (arr[i] === val) { return true; } }
+    return false;
+}
+
+try {
+    var wsApi = new Script.Util.WSProxy();
+
+    logRow("Diagnostic start. Checking children of ParentFolder.ID = " + PARENT_FOLDER_ID);
+
+    /* ---- level 1: direct children of PARENT_FOLDER_ID ---- */
+    var r1 = wsApi.retrieve("DataFolder", ["ID", "Name", "ParentFolder.ID", "ContentType"],
+                            { Property: "ParentFolder.ID", SimpleOperator: "equals", Value: PARENT_FOLDER_ID });
+
+    logRow("Raw retrieve call completed. OverallStatus: " +
+           (r1 && r1.OverallStatus ? r1.OverallStatus : "N/A") +
+           " | HasMoreRows: " + (r1 ? r1.HasMoreRows : "N/A"));
+
+    var results1 = [];
+    if (r1 && r1.Results) { results1 = (r1.Results.length !== undefined) ? r1.Results : [r1.Results]; }
+
+    if (results1.length === 0) {
+        logRow("NO child folders returned for ParentFolder.ID = " + PARENT_FOLDER_ID +
+               ". Either this folder truly has no subfolders, or 'DataFolder' / 'ParentFolder.ID' " +
+               "is not the right object/property for Journey Builder folders in this account.",
+               "High");
+    } else {
+        var childIds = [];
+        for (var i = 0; i < results1.length; i++) {
+            var f = results1[i];
+            logRow("Level 1 child found - ID: " + f.ID + " | Name: " + f.Name +
+                   " | ContentType: " + f.ContentType);
+            childIds.push(f.ID);
+        }
+
+        /* ---- level 2: children of each level-1 child, to prove recursion works ---- */
+        for (var c = 0; c < childIds.length; c++) {
+            var r2 = wsApi.retrieve("DataFolder", ["ID", "Name", "ParentFolder.ID", "ContentType"],
+                                    { Property: "ParentFolder.ID", SimpleOperator: "equals", Value: childIds[c] });
+            var results2 = [];
+            if (r2 && r2.Results) { results2 = (r2.Results.length !== undefined) ? r2.Results : [r2.Results]; }
+            if (results2.length === 0) {
+                logRow("Folder " + childIds[c] + " has no further subfolders.");
+            } else {
+                for (var j = 0; j < results2.length; j++) {
+                    logRow("Level 2 child found under parent " + childIds[c] +
+                           " - ID: " + results2[j].ID + " | Name: " + results2[j].Name);
+                }
+            }
+        }
+    }
+
+    logRow("Diagnostic complete.");
+} catch (fatal) {
+    logRow("Diagnostic FAILED with exception: " +
+           (fatal && fatal.message ? fatal.message : Platform.Function.Stringify(fatal)), "High");
+}
+</script>
