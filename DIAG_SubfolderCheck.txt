@@ -90,3 +90,12 @@ try {
            (fatal && fatal.message ? fatal.message : Platform.Function.Stringify(fatal)), "High");
 }
 </script>
+	12c92883-ace5-426b-9933-67da7278a13b	N/A	N/A			DIAG Subfolder Check	Diagnostic start. Checking children of ParentFolder.ID = 83179				10/14/2026, 3:07 AM	Info
+
+a608eeaa-8b09-4a10-8576-7bcc7baf3ab8	N/A	N/A			DIAG Subfolder Check	Raw retrieve call completed. OverallStatus: N/A | HasMoreRows: false				10/14/2026, 3:07 AM	Info
+
+c615ce58-69b8-457c-b0b4-3eda4ecbf8be	N/A	N/A			DIAG Subfolder Check	Level 1 child found - ID: 83339 | Name: Single Send Journeys - 180 days or older | ContentType: journey				10/14/2026, 3:07 AM	Info
+
+6635dbb5-c8a9-4cb5-aff5-7c9853895666	N/A	N/A			DIAG Subfolder Check	Folder 83339 has no further subfolders.				10/14/2026, 3:07 AM	Info
+
+9170aea4-4a74-4554-a19e-8cc0ee315d69	N/A	N/A			DIAG Subfolder Check	Diagnostic complete.				10/14/2026, 3:07 AM	Info
