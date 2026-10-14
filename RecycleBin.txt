@@ -467,3 +467,5 @@ try {
     logError("Script Execution", fatal);
 }
 </script>
+
+Object expected: indexOf | Jint.Native.JsException: Object expected: indexOf Exception of type 'Jint.Native.JsException' was thrown. - from Jint
