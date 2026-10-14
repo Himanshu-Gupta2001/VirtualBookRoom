@@ -388,16 +388,24 @@ function arrayContains(arr, val) {
     return false;
 }
 
-/* collects the folder's own ID plus every nested subfolder ID, recursively */
+/* Collects the folder's own ID plus every nested subfolder ID, breadth-first.
+   Uses an index pointer instead of Array.shift() - shift() (like indexOf)
+   is not reliably supported by SFMC's SSJS engine, and sat outside the
+   try/catch, so a single failed call could silently abort the whole walk
+   and leave 'ids' holding only the starting folder. Phase 1: discover every
+   folder ID into 'ids'. Phase 2 (in fetchFolderIntoDE) loops over 'ids'. */
 function getAllSubfolderIds(parentId) {
-    var ids = [String(parentId)];
-    var queue = [parentId];
+    var ids   = [String(parentId)];   // final result: folder + every descendant
+    var queue = [parentId];           // folders still to expand
+    var qIndex = 0;                   // read pointer - queue only ever grows
     var guard = 0;
-    while (queue.length > 0 && guard < 1000) {
+
+    while (qIndex < queue.length && guard < 1000) {
         guard++;
-        var pid = queue.shift();
+        var pid = queue[qIndex];
+        qIndex++;
         try {
-            var r = wsApi.retrieve("DataFolder", ["ID", "ParentFolder.ID"],
+            var r = wsApi.retrieve("DataFolder", ["ID", "Name", "ParentFolder.ID"],
                                    { Property: "ParentFolder.ID", SimpleOperator: "equals", Value: pid });
             var results = [];
             if (r && r.Results) { results = (r.Results.length !== undefined) ? r.Results : [r.Results]; }
@@ -405,7 +413,7 @@ function getAllSubfolderIds(parentId) {
                 var cid = results[i].ID;
                 if (cid && !arrayContains(ids, String(cid))) {
                     ids.push(String(cid));
-                    queue.push(cid);
+                    queue.push(cid);              // expand this child on a later pass
                 }
             }
         } catch (e) {
@@ -418,7 +426,15 @@ function getAllSubfolderIds(parentId) {
 /* ------------- live fetch of ONE folder (+ all its subfolders) into a DE ------------- */
 function fetchFolderIntoDE(categoryId, deName) {
     if (!ensureToken()) { return; }                       // never clear if we cannot refill
-    var folderIds = getAllSubfolderIds(categoryId);       // folder + every nested subfolder, confirmed via diagnostic
+
+    var folderIds;
+    try {
+        folderIds = getAllSubfolderIds(categoryId);        // folder + every nested subfolder
+    } catch (treeErr) {
+        logError("Folder Tree", treeErr, { payload: "ParentFolder.ID=" + categoryId, severity: "High" });
+        folderIds = [String(categoryId)];                  // fall back to main folder only, don't abort the run
+    }
+
     if (!clearDE(deName)) { return; }                     // Overwrite semantics
     var count = 0;
     forEachJourney(function (j, page, idx) {
