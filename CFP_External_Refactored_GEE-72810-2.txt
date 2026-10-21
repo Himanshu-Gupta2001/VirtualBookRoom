@@ -1,0 +1,1241 @@
+<script runat="server">
+  Platform.Load("Core","1");
+
+  /* ==========================================================================================
+     CENTRALIZED FORM PROCESSOR (CFP) - EXTERNAL CLOUDPAGE
+     Story: GEE-72810   (clean-up per spike GEE-35446 + fix for incident INC4979312)
+     ==========================================================================================
+
+     WHAT THIS PAGE DOES
+       External websites / partners (for example Anteriad) POST a form submission to this CloudPage.
+       The page validates it, finds or creates the person in Salesforce (Lead / Contact), updates
+       consent, preferences and subscriber status in Marketing Cloud, triggers the Journey Builder
+       journeys and finally sends the visitor to the confirmation page.
+
+     HOW THE FILE IS BUILT (read this first if you are new)
+       * The page mixes two languages: AMPscript (code between the percent-percent-open-square-bracket
+         markers) and Server-Side JavaScript, SSJS (code inside script tags with runat="server").
+       * Several stages use a try / catch that is split over blocks:
+             a script block that ends with:      try {
+             an AMPscript block that does the work
+             a script block that starts with:    } catch (e) { CFP_Fail("STAGE_NAME", e); }
+         DO NOT move, delete or re-indent the "try {" and "} catch" lines independently of each other.
+         If anything inside the AMPscript fails, the catch writes the error log and returns the error.
+       * Comments are written INSIDE the blocks on purpose. Never use HTML comments in this file:
+         everything outside the blocks is sent to the caller, so an HTML comment would be visible to
+         anyone calling the page (for example from Postman).
+       * NEVER type the closing script tag or the AMPscript markers inside a comment: the platform would
+         read them as real code and break the page.
+
+     STAGES (in execution order)
+        1  Read the posted parameters, validate them, write the staging record
+        2  Salesforce: find the Lead/Contact via ContactPointEmail (CPE), or create a Lead
+        3  Promote the staging record to Centralized_Form_Processor_DE
+        4  Update the consent status in Salesforce (+ remove the email from the suppression list)
+        5  Re-subscribe the person's other (associated) email addresses when consent was updated
+        6  Read the person's name from Salesforce and save the preferences (Preferences 1-10)
+        7  Make the subscriber Active in Marketing Cloud and decrypt the API credentials
+        8  Trigger the journeys (dynamic journeys + the Centralized Form Processor journey)
+        9  Safety net: make sure the Lead's consent status is "Opt In" (GEE-18206)
+       10  Send the browser to the confirmation page
+
+     GLOSSARY
+        CPE        = Salesforce ContactPointEmail object (one row per email address of a person).
+                     Field KPMG_Lead_Contact_Id__c holds the Id of the Lead or Contact owning the email.
+        SFID       = Salesforce Id of the Lead (starts with 00Q) or Contact (starts with 003).
+        IFD        = Salesforce object KPMG_Individual_Firm_Details__c (holds the consent status).
+        Staging    = Data Extension NoSFID_CentralizedFormProcessor. Every valid submission is stored here
+                     first and removed only after it was saved to Centralized_Form_Processor_DE, so a
+                     failed submission is never lost.
+        Error log  = Data Extension Centralized_Form_Processor_DE_Error_Log (see CFP_LogError below).
+        Sync DE    = the Marketing Cloud synchronized Data Extension that mirrors Salesforce ContactPointEmail.
+        PrimaryKey = reference such as EX-1A2B3C4D created for each submission. It is stored in the staging
+                     record, the final record and every error-log row. Use it to follow one submission.
+
+     WHAT WAS REMOVED IN GEE-72810 (do not add it back to this page)
+        * Inquiry Type handling, Contact Us journey, Internal Notification journey: these belong to the
+          Internal CFP pages only. The External page never receives an Inquiry Type.
+        * The three copies of the Lead create / update logic: now ONE flow (stage 2).
+        * Repeated ContactPointEmail lookups: now ONE lookup whose result is reused (stage 2).
+
+     CONFIGURATION - the only values meant to be edited after deployment
+     ========================================================================================== */
+
+  /* Waiting after a Lead is created.
+     false (default) = wait only after a NEW Lead was created. Salesforce builds the Lead, its IFD record
+                       and its ContactPointEmail record together, so the new Lead needs a few seconds
+                       before the following stages read them. An existing Lead / Contact needs no wait.
+     true            = old behaviour: always wait, even for existing records. */
+  var CFP_ALWAYS_WAIT      = false;
+  var CFP_CREATE_WAIT_MS   = 3000;   /* length of the wait in milliseconds (unchanged from the old code) */
+
+  /* Name of the synchronized Data Extension of Salesforce ContactPointEmail (used by fallback FB-1).
+     It must contain the columns EmailAddress and KPMG_Lead_Contact_Id__c. CONFIRM THE NAME IN EACH BU. */
+  var CFP_CPE_SYNC_DE      = "ContactPointEmail_Salesforce";
+
+  /* What the caller receives when the page fails. Every failure is ALWAYS written to the error log first.
+       "RAISE_ERROR" = (default, as used in the Sandbox) stops the page with AMPscript RaiseError and passes the
+                       intended status number: 400 invalid submission, 502 Salesforce failure, 500 internal
+                       failure (see CFP_STATUS_MAP). Confirm in Postman which status SFMC really returns.
+       "THROW"       = stops with an unhandled script error. SFMC answers with a generic 500 error response.
+                       Note: the CloudPage preview / publish screen warns that the page contains an error.
+       "REDIRECT"    = the OLD behaviour: redirect to CFP_ERROR_URL (the caller then sees whatever status
+                       that page answers, which was reported as 404). */
+  var CFP_ERROR_MODE       = "RAISE_ERROR";
+  var CFP_ERROR_URL        = "https://www.kpmg.us/errors/500.html";   /* used only by mode REDIRECT */
+
+  /* Data Extensions used by this page */
+  var CFP_ERROR_LOG_DE      = "Centralized_Form_Processor_DE_Error_Log";
+  var CFP_JOURNEY_CONFIG_DE = "ENT.Journey_API_Event_Key_Config_DE";   /* holds the journey event keys per MID */
+  var CFP_JOURNEY_MAP_DE    = "FormName_Event_ID_Mapping_DE";          /* extra journeys per formName (GEE-9867) */
+
+  /* Start time of the request, used only to report "t=+ms" in error-log messages */
+  var CFP_START = new Date().getTime();
+
+  /* Hand the sync DE name to AMPscript (AMPscript cannot read the JavaScript variable above) */
+  Variable.SetValue("@CPE_Sync_DE", CFP_CPE_SYNC_DE);
+
+  /* ------------------------------------------------------------------------------------------
+     FIELD TABLE - one row per posted form field:   [ name, maximum length, character check ]
+     It drives BOTH the validation (stage 1) and the error log (every posted value is written to the
+     error log, cut to this length). The name is also the AMPscript variable name (@name) and the
+     Data Extension column name.
+       character check:  0 = length only
+                         1 = letters, digits and  space ' ~ - ^ # _ : / ( ) | . , &  only
+                         2 = same as 1 plus  ! ?   (used for the free-text Message field)
+                         3 = must not contain the text  alert(   (URL type fields)
+     The limits and checks are exactly the ones of the previous page version (GSENHANCEM-13647).
+     ------------------------------------------------------------------------------------------ */
+  var CFP_FIELDS = [
+    ["FirstName",100,1], ["LastName",100,1], ["EmailAddress",254,0], ["Company",250,1],
+    ["JobTitle",100,1], ["Country",50,1], ["Phone",50,1], ["CID",100,1],
+    ["medium",100,0], ["MID",100,0], ["term",100,0], ["Campaign",100,1],
+    ["Source",100,1], ["content",100,1],
+    ["db_annual_sales",50,1], ["db_city",50,1], ["db_company_name",100,1], ["db_country_name",50,1],
+    ["db_employee_count",50,1], ["db_industry",50,1], ["db_primary_naics",50,1], ["db_primary_sic",50,1],
+    ["db_state",50,1], ["db_street_address",100,1], ["db_sub_industry",50,0], ["db_web_site",100,0],
+    ["db_zip",50,1],
+    ["confirmationPage",1000,3], ["formName",250,1], ["pageURL",4000,3], ["conditionalProcessing",250,1],
+    ["Preference1",100,1], ["Preference2",100,1], ["Preference3",100,1], ["Preference4",100,1],
+    ["Preference5",100,1], ["Preference6",100,1], ["Preference7",100,1], ["Preference8",100,1],
+    ["Preference9",100,1], ["Preference10",100,1],
+    ["Tactic_ID",50,1], ["Lead_Source",50,1], ["Message",4000,2], ["Function",50,1], ["Level",50,1],
+    ["Department",50,1], ["Lead_Source_Detail",100,1], ["marketingTheme",256,1],
+    ["marketingCampaign",256,1], ["marketingSubCampaign",256,1], ["Full_Page_URL",4000,3]
+  ];
+  /* A value FAILS the check when it contains any character that is NOT in the allowed list */
+  var CFP_CHARSET_STD = /[^0-9 a-z A-Z \' \~ \- \^ \# \_ \: \/ \( \) \| \. \, \&]/;
+  var CFP_CHARSET_MSG = /[^0-9 a-z A-Z \' \~ \- \^ \# \_ \: \/ \( \) \| \! \? \. \, \&]/;
+
+  /* Intended HTTP status per failing stage (used by CFP_ERROR_MODE = "RAISE_ERROR" and written to the log).
+       400 = the submission itself is invalid | 502 = a Salesforce call failed | 500 = internal failure.
+     A stage that is not listed counts as 500. */
+  var CFP_STATUS_MAP = {
+    "INPUT_VALIDATION": 400, "EMAIL_VALIDATION": 400,
+    "SF_INTEGRATION": 502, "CONSENT_UPDATE": 502, "ASSOCIATED_EMAILS": 502,
+    "PREFERENCE_PROCESSING": 502, "CONSENT_SAFETY_NET": 502,
+    "STAGING_INSERT": 500, "DATA_PROMOTION": 500,
+    "SUBSCRIBER_ACTIVATION_OR_API_CREDENTIALS": 500, "JOURNEY_PROCESSING": 500
+  };
+
+  /* ------------------------------------------------------------------------------------------
+     HELPER FUNCTIONS (used by every stage below)
+     ------------------------------------------------------------------------------------------ */
+
+  /* Read an AMPscript variable (for example "FirstName" reads @FirstName) as text. Never returns null. */
+  function CFP_Get(name) {
+    var v = Variable.GetValue("@" + name);
+    if (v === null || v === undefined) { return ""; }
+    return String(v);
+  }
+
+  /* Cut a text to at most n characters (so it always fits the Data Extension column) */
+  function CFP_Trunc(s, n) {
+    s = String(s);
+    return (s.length > n) ? s.substring(0, n) : s;
+  }
+
+  /* Turn any error (text or object) into readable text for the error log */
+  function CFP_ErrText(e) {
+    if (e === null || e === undefined) { return "Unknown error"; }
+    if (typeof e === "string") { return e; }
+    var t = "";
+    try { if (e.message) { t += String(e.message); } } catch (x1) {}
+    try { if (e.description) { t += (t ? " | " : "") + String(e.description); } } catch (x2) {}
+    try { var s = Stringify(e); if (s && s !== "{}") { t += (t ? " | " : "") + s; } } catch (x3) {}
+    return t ? t : String(e);
+  }
+
+  /* The wait routine of the old page (GSENHANCEM-15677) - intentionally unchanged.
+     SSJS has no sleep command, so it loops until the time has passed. */
+  function CFP_Sleep(milliseconds) {
+    var start = new Date().getTime();
+    for (var i = 0; i < 1e7; i++) {
+      if ((new Date().getTime() - start) > milliseconds) { break; }
+    }
+  }
+
+  /* Check every posted field against CFP_FIELDS. Returns a list of problems (empty list = all valid).
+     Only field NAMES are returned, never the values. */
+  function CFP_ValidateInput() {
+    var bad = [];
+    for (var i = 0; i < CFP_FIELDS.length; i++) {
+      var name = CFP_FIELDS[i][0], max = CFP_FIELDS[i][1], type = CFP_FIELDS[i][2];
+      var v = CFP_Get(name);
+      if (v.length > max) { bad.push(name + " exceeds " + max + " characters"); }
+      if (type === 1 && CFP_CHARSET_STD.test(v)) { bad.push(name + " has disallowed characters"); }
+      if (type === 2 && CFP_CHARSET_MSG.test(v)) { bad.push(name + " has disallowed characters"); }
+      if (type === 3 && v.indexOf("alert(") > -1) { bad.push(name + " contains a script pattern"); }
+    }
+    return bad;
+  }
+
+  /* ERROR LOG WRITER (Scenario 6) - the ONE place that writes Centralized_Form_Processor_DE_Error_Log.
+     It stores every posted value that is known at the moment of the failure (all fields of CFP_FIELDS),
+     plus RFP_Attachments, PrimaryKey, CFP_PK (GUID that links to the staging record), Page_Type = External
+     and ErrorMessage. ErrorMessage looks like:
+         [STAGE] description | HTTP=<status> | SFID=<Salesforce Id if known> | LOOKUP=<how the Id was found> | t=+<ms>
+     level:  "ERROR"          = the submission failed and the caller gets an error
+             "ERROR_NONFATAL" = something failed but the submission continues (as it always did)
+     This function never throws, so a logging problem can never hide the real error. If the full row
+     cannot be written, a smaller row (name, email, message) is written instead. */
+  function CFP_LogError(stage, detail, level, httpStatus) {
+    var status = httpStatus ? String(httpStatus) : "";
+    var msg = "[" + stage + "] " + CFP_ErrText(detail) +
+              " | HTTP=" + status +
+              " | SFID=" + CFP_Get("Salesforce_ID") +
+              " | LOOKUP=" + CFP_Get("Resolved_From") +
+              " | t=+" + (new Date().getTime() - CFP_START) + "ms" +
+              ((level === "ERROR_NONFATAL") ? " | NON-FATAL (submission continued)" : "");
+    msg = CFP_Trunc(msg, 3999);
+    var names = [], values = [];
+    for (var i = 0; i < CFP_FIELDS.length; i++) {
+      names.push(CFP_FIELDS[i][0]);
+      values.push(CFP_Trunc(CFP_Get(CFP_FIELDS[i][0]), CFP_FIELDS[i][1]));
+    }
+    names.push("RFP_Attachments"); values.push(CFP_Trunc(CFP_Get("RFP_Attachments"), 50));
+    names.push("PrimaryKey");      values.push(CFP_Trunc(CFP_Get("PrimaryKey"), 50));
+    names.push("CFP_PK");          values.push(CFP_Trunc(CFP_Get("guid"), 50));
+    names.push("Page_Type");       values.push("External");
+    names.push("ErrorMessage");    values.push(msg);
+    try {
+      Platform.Function.InsertData(CFP_ERROR_LOG_DE, names, values);
+    } catch (eLog) {
+      try {
+        Platform.Function.InsertData(CFP_ERROR_LOG_DE,
+          ["FirstName","LastName","EmailAddress","ErrorMessage"],
+          [CFP_Trunc(CFP_Get("FirstName"),100), CFP_Trunc(CFP_Get("LastName"),100),
+           CFP_Trunc(CFP_Get("EmailAddress"),254), msg]);
+      } catch (eLog2) { /* nothing more can be done - never block the response */ }
+    }
+  }
+
+  /* Give the caller the error response, according to CFP_ERROR_MODE (see the configuration above).
+     The text always contains the PrimaryKey so support can find the matching error-log row. */
+  function CFP_ErrorResponse(httpStatus, stage) {
+    var ref = "CFP error " + httpStatus + " [" + stage + "] ref " + CFP_Get("PrimaryKey");
+    if (CFP_ERROR_MODE === "REDIRECT") {
+      Platform.Response.Redirect(CFP_ERROR_URL);
+    } else if (CFP_ERROR_MODE === "RAISE_ERROR") {
+      Platform.Function.RaiseError(ref, true, "statusCode", String(httpStatus));
+    } else {
+      throw ref;    /* mode THROW: unhandled script error -> HTTP 500 error response */
+    }
+  }
+
+  /* Standard failure handling used by every stage's catch block:
+     1) write the error log row, 2) return the error to the caller. */
+  function CFP_Fail(stage, e) {
+    var st = CFP_STATUS_MAP[stage] || 500;
+    CFP_LogError(stage, e, "ERROR", st);
+    CFP_ErrorResponse(st, stage);
+  }
+</script>
+
+%%[
+  /* ==========================================================================================
+     STAGE 1 - READ THE POSTED PARAMETERS
+     Left side = name of the form field that the website posts.  Right side = AMPscript variable.
+     (Inquiry_Type is intentionally NOT read any more - GEE-72810 Scenario 1.)
+     ========================================================================================== */
+  VAR @SC_First_Name, @SC_Last_Name, @SC_Full_Name
+
+  /* Reference numbers for this submission:
+       @guid       = unique id, used as CFP_PK to link staging record, final record and error log
+       @PrimaryKey = short readable reference, e.g. EX-1A2B3C4D (EX = External page) */
+  SET @guid = GUID()
+  SET @guidSubstring = Substring(@guid,1,8)
+  SET @guidUppercase = Uppercase(@guidSubstring)
+  SET @PrimaryKey = Concat('EX-',@guidUppercase)
+  SET @Page_Type1 = 'External'
+
+  SET @FirstName = RequestParameter('FirstName')
+  SET @LastName = RequestParameter('LastName')
+  SET @EmailAddress = RequestParameter('EmailAddress')
+  SET @Company = RequestParameter('Company')
+  SET @JobTitle = RequestParameter('Title')
+  SET @Country = RequestParameter('Country')
+  SET @Phone = RequestParameter('busPhone')
+  SET @CID = RequestParameter('CID')
+  SET @medium = RequestParameter('medium')
+  SET @MID = RequestParameter('MID')
+  SET @term = RequestParameter('term')
+  SET @Campaign = RequestParameter('Campaign')
+  SET @Source = RequestParameter('Source')
+  /*SET @UTM_Medium = RequestParameter('UTM_Medium')*/
+  SET @content = RequestParameter('content')
+  SET @db_annual_sales = RequestParameter('db_annual_sales')
+  SET @db_city = RequestParameter('db_city')
+  SET @db_company_name = RequestParameter('db_company_name')
+  SET @db_country_name = RequestParameter('db_country_name')
+  SET @db_employee_count = RequestParameter('db_employee_count')
+  SET @db_industry = RequestParameter('db_industry')
+  SET @db_primary_naics = RequestParameter('db_primary_naics')
+  SET @db_primary_sic = RequestParameter('db_primary_sic')
+  SET @db_state = RequestParameter('db_state')
+  SET @db_street_address = RequestParameter('db_street_address')
+  SET @db_sub_industry = RequestParameter('db_sub_industry')
+  SET @db_web_site = RequestParameter('db_web_site')
+  SET @db_zip = RequestParameter('db_zip')
+  SET @confirmationPage = RequestParameter('confirmationPage')
+  SET @formName = RequestParameter('formName')
+  SET @pageURL = RequestParameter('pageURL')
+  SET @conditionalProcessing = RequestParameter('conditionalProcessing')
+  SET @Preference1 = RequestParameter('mktAttribute1')
+  SET @Preference2 = RequestParameter('mktAttribute2')
+  SET @Preference3 = RequestParameter('mktAttribute3')
+  SET @Preference4 = RequestParameter('mktAttribute4')
+  SET @Preference5 = RequestParameter('mktAttribute5')
+  SET @Preference6 = RequestParameter('mktAttribute6')
+  SET @Preference7 = RequestParameter('mktAttribute7')
+  SET @Preference8 = RequestParameter('mktAttribute8')
+  SET @Preference9 = RequestParameter('mktAttribute9')
+  SET @Preference10 = RequestParameter('mktAttribute10')
+  SET @Tactic_ID = RequestParameter('tacticid')
+  SET @Lead_Source = RequestParameter('Lead_Source')
+  SET @Message = RequestParameter('Message')
+  SET @Department = RequestParameter('Department')
+  SET @Level = RequestParameter('Level')
+  SET @Function = RequestParameter('Function')
+  SET @Lead_Source_Detail = RequestParameter('Lead_Source_Detail')
+  SET @marketingTheme = RequestParameter('marketingTheme')
+  SET @marketingCampaign = RequestParameter('marketingCampaign')
+  SET @marketingSubCampaign = RequestParameter('marketingSubCampaign')
+  SET @RFP_Attachments = RequestParameter('RFP_Attachments')
+
+  /* Full URL of the page where the form was submitted. Read here so that the length / script check
+     in the field table and the Data Extension column work as intended. */
+  SET @Full_Page_URL = RequestParameter('Full_Page_URL')
+
+  /* Person's full name, used as "Initiated_By" in the audit records (stage 5) */
+  SET @Name = Concat(@FirstName,' ',@LastName)
+
+  /* Becomes "True" when the consent status in Salesforce is changed to Opt In (new Lead, or an
+     Opt Out / Opt In Pending person who submits again). Stage 5 only runs when it is "True". */
+  SET @IsStatusupdate = "FALSE"
+]%%
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 1b - VALIDATE THE SUBMISSION
+     Same rules as the previous version of the page. If anything is invalid, nothing is saved:
+     the problem is written to the error log (field names only) and the caller gets the error.
+     The decision is taken first and the error is returned AFTER the try / catch, so that the error
+     response itself can never be swallowed by our own catch.
+     ======================================================================================== */
+  var cfpRejectStage = "";
+  var cfpRejectMsg = "";
+  try {
+    var cfpFailures = CFP_ValidateInput();
+    if (cfpFailures.length > 0) {
+      cfpRejectStage = "INPUT_VALIDATION";
+      cfpRejectMsg = "Submission rejected: " + cfpFailures.join("; ");
+    } else if (!IsEmailAddress(CFP_Get("EmailAddress"))) {
+      /* an empty email also fails here, so a missing email is rejected too */
+      cfpRejectStage = "EMAIL_VALIDATION";
+      cfpRejectMsg = "EmailAddress is missing or not a valid email address";
+    }
+  } catch (eVal) {
+    cfpRejectStage = "INPUT_VALIDATION";
+    cfpRejectMsg = "Validation routine failed: " + CFP_ErrText(eVal);
+  }
+  if (cfpRejectStage !== "") {
+    CFP_LogError(cfpRejectStage, cfpRejectMsg, "ERROR", 400);
+    CFP_ErrorResponse(400, cfpRejectStage);
+  }
+</script>
+
+%%[
+  /* Default values (unchanged from the previous version) */
+  IF EMPTY(@RFP_Attachments) OR (@RFP_Attachments != "True") THEN
+    SET @RFP_Attachments = "False"
+  ENDIF
+  IF EMPTY(@db_annual_sales) THEN
+    SET @db_annual_sales = "0"
+  ENDIF
+  IF EMPTY(@db_employee_count) THEN
+    SET @db_employee_count = "0"
+  ENDIF
+]%%
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 1c - STAGING RECORD
+     The submission is stored in NoSFID_CentralizedFormProcessor BEFORE any Salesforce call.
+     It stays there until stage 3 has saved it to Centralized_Form_Processor_DE. A submission
+     that fails in between is therefore never lost and can be re-processed from this DE.
+     ======================================================================================== */
+  try {
+</script>
+%%[
+    SET @insert = InsertDE("NoSFID_CentralizedFormProcessor",
+      "FirstName", @FirstName,
+      "LastName", @LastName,
+      "EmailAddress", @EmailAddress,
+      "Company", @Company,
+      "JobTitle", @Jobtitle,
+      "Country", @Country,
+      "Phone", @Phone,
+      "CID", @CID,
+      "medium", @medium,
+      "MID", @MID,
+      "term", @term,
+      "Campaign", @Campaign,
+      "Source", @Source,
+      "content", @content,
+      "db_annual_sales", @db_annual_sales,
+      "db_city", @db_city,
+      "db_company_name", @db_company_name,
+      "db_country_name", @db_country_name,
+      "db_employee_count", @db_employee_count,
+      "db_industry", @db_industry,
+      "db_primary_naics", @db_primary_naics,
+      "db_primary_sic", @db_primary_sic,
+      "db_state", @db_state,
+      "db_street_address", @db_street_address,
+      "db_sub_industry", @db_sub_industry,
+      "db_web_site", @db_web_site,
+      "db_zip", @db_zip,
+      "confirmationPage", @confirmationPage,
+      "formName", @formName,
+      "pageURL", @pageURL,
+      "conditionalProcessing", @conditionalProcessing,
+      "Preference1", @Preference1,
+      "Preference2", @Preference2,
+      "Preference3", @Preference3,
+      "Preference4", @Preference4,
+      "Preference5", @Preference5,
+      "Preference6", @Preference6,
+      "Preference7", @Preference7,
+      "Preference8", @Preference8,
+      "Preference9", @Preference9,
+      "Preference10", @Preference10,
+      "Tactic_ID", @Tactic_ID,
+      "Department", @Department,
+      "Level", @Level,
+      "Function", @Function,
+      "Lead_Source", @Lead_Source,
+      "Lead_Source_Detail", @Lead_Source_Detail,
+      "Message", @Message,
+      "marketingTheme", @marketingTheme,
+      "marketingCampaign", @marketingCampaign,
+      "marketingSubCampaign", @marketingSubCampaign,
+      "PrimaryKey", @PrimaryKey,
+      "CFP_PK", @guid
+    )
+]%%
+<script runat="server">
+  } catch (eStage) {
+    CFP_Fail("STAGING_INSERT", eStage);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 2 - SALESFORCE: FIND THE LEAD / CONTACT, OR CREATE A LEAD   (GEE-72810 Scenarios 3, 4, 5)
+
+     Plan, in this order (a step runs only if the previous steps found no Salesforce Id):
+       2.1 PRIMARY lookup   - ask Salesforce live: ContactPointEmail by email address.
+                              This is the ONLY live ContactPointEmail lookup. Its result is stored in
+                              @Resolved_ID / @Salesforce_ID and re-used by stages 4, 5 and 9 (no repeats).
+       2.2 FB-1 fallback    - look the email up in the synchronized Data Extension of ContactPointEmail.
+                              (No Salesforce call, so it costs almost nothing.)
+       2.3 FB-2 fallback    - a ContactPointEmail row exists but carries no Lead/Contact Id: follow the row
+                              to its Individual and take the Contact / Lead of that Individual.
+       2.4 CREATE a Lead    - only when 2.1 to 2.3 found nothing. Before GEE-72810 a single missed lookup led
+                              straight to a create, and Salesforce rejected it with "email already exists"
+                              (incident INC4979312). The two fallbacks above prevent that.
+       2.5 UPDATE           - existing Lead: update 10 attributes. Existing Contact: nothing is updated
+                              (GEE-5976, same as before).
+     If a Salesforce call fails the catch at the end of this stage writes the error log and returns the error.
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  VAR @CPE_Rows, @CPE_RowCount, @CPE_Row_Seen, @cpeSFID, @k
+  VAR @FB_Rows, @FB_RowCount, @FB2_Rows, @FB2_ParentId, @FB2_Contact, @FB2_Lead
+  VAR @Resolved_ID, @Resolved_From, @ProcessLead, @NeedCreate
+  VAR @Salesforce_ID, @LeadId, @NewLeadCreated, @updateRecord
+
+  /* @Resolved_ID   = the Lead/Contact Id found by lookups 2.1 - 2.3 (empty = nothing found yet)
+     @Resolved_From = which step found it (PRIMARY, FALLBACK_SYNC_DE, FALLBACK_INDIVIDUAL_...) - for the log
+     @CPE_Row_Seen  = "True" when a ContactPointEmail row was seen for the email (even without an Id)
+     @NeedCreate    = "True" when a new Lead has to be created
+     @NewLeadCreated= "True" when this submission created a Lead (then the wait after this stage applies)
+     @Salesforce_ID = the final Id used by ALL later stages */
+  SET @Resolved_ID    = ""
+  SET @Resolved_From  = ""
+  SET @CPE_Row_Seen   = "False"
+  SET @NeedCreate     = "False"
+  SET @NewLeadCreated = "False"
+  SET @Salesforce_ID  = ""
+  SET @LeadId         = ""
+
+  /* Lead processing (create / update) applies only to these Function values. This is the same rule as the
+     previous page, where two identical branches handled "Other/Not Sure or empty" and "Advisory/Tax/Audit".
+     For any other Function value no Lead is created or updated (unchanged behaviour). */
+  IF EMPTY(@Function) OR @Function == "Other/Not Sure" OR @Function == "Advisory" OR @Function == "Tax" OR @Function == "Audit" THEN
+    SET @ProcessLead = "True"
+  ELSE
+    SET @ProcessLead = "False"
+  ENDIF
+
+  /* ---------- 2.1 PRIMARY LOOKUP (live Salesforce query) ----------
+     Several rows can exist for one email; the first row that has a Lead/Contact Id is used. */
+  SET @CPE_Rows = RetrieveSalesforceObjects("ContactPointEmail", "KPMG_Lead_Contact_Id__c", "EmailAddress", "=", @EmailAddress)
+  SET @CPE_RowCount = RowCount(@CPE_Rows)
+  IF @CPE_RowCount > 0 THEN
+    SET @CPE_Row_Seen = "True"
+    FOR @k = 1 TO @CPE_RowCount DO
+      SET @cpeSFID = Field(Row(@CPE_Rows, @k), "KPMG_Lead_Contact_Id__c")
+      IF EMPTY(@Resolved_ID) AND NOT EMPTY(@cpeSFID) THEN
+        SET @Resolved_ID   = @cpeSFID
+        SET @Resolved_From = "PRIMARY"
+      ENDIF
+    NEXT @k
+  ENDIF
+]%%
+
+<script runat="server">
+  /* ---------- 2.2 FB-1: synchronized Data Extension of ContactPointEmail ----------
+     Runs only when 2.1 found no Id AND the submission is eligible for Lead processing, i.e. exactly when the
+     page would otherwise decide "new Lead". The sync DE mirrors Salesforce, so no extra Salesforce call is made.
+     It has its own try / catch: if the DE name is wrong or a column is missing, the problem is logged as
+     NON-FATAL and the page simply continues with FB-2. */
+  try {
+</script>
+%%[
+  IF EMPTY(@Resolved_ID) AND @ProcessLead == "True" THEN
+    SET @FB_Rows = LookupRows(@CPE_Sync_DE, "EmailAddress", @EmailAddress)
+    SET @FB_RowCount = RowCount(@FB_Rows)
+    IF @FB_RowCount > 0 THEN
+      SET @CPE_Row_Seen = "True"
+      FOR @k = 1 TO @FB_RowCount DO
+        SET @cpeSFID = Field(Row(@FB_Rows, @k), "KPMG_Lead_Contact_Id__c")
+        IF EMPTY(@Resolved_ID) AND NOT EMPTY(@cpeSFID) THEN
+          SET @Resolved_ID   = @cpeSFID
+          SET @Resolved_From = "FALLBACK_SYNC_DE"
+        ENDIF
+      NEXT @k
+    ENDIF
+  ENDIF
+]%%
+<script runat="server">
+  } catch (eFB1) {
+    CFP_LogError("FALLBACK_SYNC_DE_LOOKUP_FAILED", eFB1, "ERROR_NONFATAL");
+  }
+</script>
+
+<script runat="server">
+  /* ---------- 2.3 FB-2: associated Lead / Contact through the Individual ----------
+     Case: a ContactPointEmail row exists for the email (seen in 2.1 or 2.2) but it has no Lead/Contact Id.
+     The row's ParentId is the Salesforce Individual; the Contact (checked first) or Lead of that Individual
+     is the person we are looking for.
+     Own try / catch: if the integration user cannot read one of these fields, the problem is logged as
+     NON-FATAL and the page continues to the create step. */
+  try {
+</script>
+%%[
+  IF EMPTY(@Resolved_ID) AND @ProcessLead == "True" AND @CPE_Row_Seen == "True" THEN
+    SET @FB2_Rows = RetrieveSalesforceObjects("ContactPointEmail", "Id,ParentId", "EmailAddress", "=", @EmailAddress)
+    IF RowCount(@FB2_Rows) > 0 THEN
+      SET @FB2_ParentId = Field(Row(@FB2_Rows, 1), "ParentId")
+      IF NOT EMPTY(@FB2_ParentId) THEN
+        SET @FB2_Contact = RetrieveSalesforceObjects("Contact", "Id", "IndividualId", "=", @FB2_ParentId)
+        IF RowCount(@FB2_Contact) > 0 THEN
+          SET @Resolved_ID   = Field(Row(@FB2_Contact, 1), "Id")
+          SET @Resolved_From = "FALLBACK_INDIVIDUAL_CONTACT"
+        ELSE
+          SET @FB2_Lead = RetrieveSalesforceObjects("Lead", "Id", "IndividualId", "=", @FB2_ParentId)
+          IF RowCount(@FB2_Lead) > 0 THEN
+            SET @Resolved_ID   = Field(Row(@FB2_Lead, 1), "Id")
+            SET @Resolved_From = "FALLBACK_INDIVIDUAL_LEAD"
+          ENDIF
+        ENDIF
+      ENDIF
+    ENDIF
+  ENDIF
+]%%
+<script runat="server">
+  } catch (eFB2) {
+    CFP_LogError("FALLBACK_INDIVIDUAL_LOOKUP_FAILED", eFB2, "ERROR_NONFATAL");
+  }
+</script>
+
+%%[
+  /* ---------- 2.4 CREATE A NEW LEAD ----------
+     Reached only when the person is eligible (Function rule) and NOTHING was found by 2.1, 2.2 and 2.3.
+     The 20 attributes below are exactly those of the previous page. LeadSource = 2 is as before.
+     If Salesforce rejects the create, the error is raised here and handled by the catch of this stage
+     (error log + error response). */
+  IF @ProcessLead == "True" AND EMPTY(@Resolved_ID) THEN
+    SET @NeedCreate = "True"
+    SET @LeadId = CreateSalesforceObject("Lead", 20,
+      "FirstName", @FirstName,
+      "LastName", @LastName,
+      "Email", @EmailAddress,
+      "Company", @Company,
+      "Title", @JobTitle,
+      "Phone", @Phone,
+      "KPMG_Level__c", @Level,
+      "KPMG_Department__c", @Department,
+      "Street", @db_street_address,
+      "City", @db_city,
+      "State", @db_state,
+      "PostalCode", @db_zip,
+      "Country", @Country,
+      "KPMG_Lead_Industry__c", @db_industry,
+      "NumberOfEmployees", @db_employee_count,
+      "Website", @db_web_site,
+      "AnnualRevenue", @db_annual_sales,
+      "KPMG_Function__c", @Function,
+      "KPMG_Lead_Source_Detail__c", @Lead_Source_Detail,
+      "LeadSource", 2)
+
+    /* A Salesforce Id has 15 or 18 characters. Anything shorter means the create did not really succeed
+       (an empty or 0 answer is a known silent-failure pattern) and is treated as a failure in the SSJS
+       check right after this block. */
+    IF NOT EMPTY(@LeadId) AND Length(@LeadId) >= 15 THEN
+      SET @Resolved_ID    = @LeadId
+      SET @Resolved_From  = "CREATED"
+      SET @NewLeadCreated = "True"
+      SET @IsStatusupdate = "True"    /* a new Lead must be set to Opt In in stage 4 */
+    ENDIF
+  ENDIF
+]%%
+<script runat="server">
+  /* A create was attempted but did not return a valid Lead Id -> fail with a clear message */
+  if (Variable.GetValue("@NeedCreate") == "True" && !Variable.GetValue("@Resolved_ID")) {
+    throw "Lead creation did not return a valid Salesforce Id (returned: [" + Variable.GetValue("@LeadId") + "])";
+  }
+</script>
+
+%%[
+  /* ---------- 2.5 UPDATE THE EXISTING RECORD, then publish the Salesforce Id ----------
+     @Salesforce_ID is the Id used by every later stage. It stays EMPTY when the Function value is not
+     eligible (unchanged behaviour of the previous page). */
+  IF @ProcessLead == "True" AND NOT EMPTY(@Resolved_ID) THEN
+    SET @Salesforce_ID = @Resolved_ID
+
+    /* A Lead created a moment ago already carries the submitted values, so only EXISTING records are updated. */
+    IF @Resolved_From != "CREATED" THEN
+      /* Contact (Id starts with 003): NOT updated - GEE-5976, unchanged.
+         Lead: the same 10 attributes as before. Name, title, phone, country, function etc. are NOT updated. */
+      IF Substring(@Resolved_ID,1,3) != "003" THEN
+        SET @updateRecord = UpdateSingleSalesforceObject("Lead", @Resolved_ID,
+          "KPMG_Level__c", @Level,
+          "KPMG_Department__c", @Department,
+          "Street", @db_street_address,
+          "City", @db_city,
+          "State", @db_state,
+          "PostalCode", @db_zip,
+          "KPMG_Lead_Industry__c", @db_industry,
+          "NumberOfEmployees", @db_employee_count,
+          "Website", @db_web_site,
+          "AnnualRevenue", @db_annual_sales)
+      ENDIF
+    ENDIF
+  ENDIF
+]%%
+
+<script runat="server">
+  /* Wait for Salesforce to finish building a NEW Lead (Lead + IFD + ContactPointEmail are created together).
+     Not needed for existing records. Set CFP_ALWAYS_WAIT = true at the top of the page to always wait. */
+  if (CFP_ALWAYS_WAIT || Variable.GetValue("@NewLeadCreated") == "True") {
+    CFP_Sleep(CFP_CREATE_WAIT_MS);
+  }
+  } catch (eSF) {
+    /* end of the stage 2 try { - any Salesforce failure above ends up here */
+    CFP_Fail("SF_INTEGRATION", eSF);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 3 - PROMOTE THE STAGING RECORD to Centralized_Form_Processor_DE
+     Only when a Salesforce Id exists. The final record is inserted FIRST; the staging record is removed
+     only after that insert is confirmed. (The old page deleted first, so a failed insert lost the data.)
+     A submission without Salesforce Id (Function not eligible) stays in the staging DE, as before.
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  IF NOT EMPTY(@Salesforce_ID) THEN
+      SET @InsertCFP = InsertDE("Centralized_Form_Processor_DE",
+        "FirstName", @FirstName,
+        "LastName", @LastName,
+        "EmailAddress", @EmailAddress,
+        "Company", @Company,
+        "JobTitle", @Jobtitle,
+        "Country", @Country,
+        "Phone", @Phone,
+        "CID", @CID,
+        "medium", @medium,
+        "MID", @MID,
+        "term", @term,
+        "Campaign", @Campaign,
+        "Source", @Source,
+        "content", @content,
+        "db_annual_sales", @db_annual_sales,
+        "db_city", @db_city,
+        "db_company_name", @db_company_name,
+        "db_country_name", @db_country_name,
+        "db_employee_count", @db_employee_count,
+        "db_industry", @db_industry,
+        "db_primary_naics", @db_primary_naics,
+        "db_primary_sic", @db_primary_sic,
+        "db_state", @db_state,
+        "db_street_address", @db_street_address,
+        "db_sub_industry", @db_sub_industry,
+        "db_web_site", @db_web_site,
+        "db_zip", @db_zip,
+        "confirmationPage", @confirmationPage,
+        "formName", @formName,
+        "pageURL", @pageURL,
+        "conditionalProcessing", @conditionalProcessing,
+        "Preference1", @Preference1,
+        "Preference2", @Preference2,
+        "Preference3", @Preference3,
+        "Preference4", @Preference4,
+        "Preference5", @Preference5,
+        "Preference6", @Preference6,
+        "Preference7", @Preference7,
+        "Preference8", @Preference8,
+        "Preference9", @Preference9,
+        "Preference10", @Preference10,
+        "Tactic_ID", @Tactic_ID,
+        "Department", @Department,
+        "Level", @Level,
+        "Function", @Function,
+        "Lead_Source", @Lead_Source,
+        "Lead_Source_Detail", @Lead_Source_Detail,
+        "Message", @Message,
+        "RFP_Attachments", @RFP_Attachments,
+        "marketingTheme", @marketingTheme,
+        "marketingCampaign", @marketingCampaign,
+        "marketingSubCampaign", @marketingSubCampaign,
+        "PrimaryKey", @PrimaryKey,
+        "Full_Page_URL", @Full_Page_URL,
+        "CFP_PK", @guid,
+        "Salesforce_ID", @Salesforce_ID
+      )
+    /* Confirm the insert two ways: its return value (1 = one row inserted) or by finding the row */
+    SET @PromotedPK = Lookup("Centralized_Form_Processor_DE", "CFP_PK", "CFP_PK", @guid)
+    IF @InsertCFP == 1 OR NOT EMPTY(@PromotedPK) THEN
+      SET @deleteCount = DeleteData("NoSFID_CentralizedFormProcessor", "CFP_PK", @guid)
+    ENDIF
+  ENDIF
+]%%
+<script runat="server">
+  } catch (ePromo) {
+    CFP_Fail("DATA_PROMOTION", ePromo);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 4 - CONSENT STATUS UPDATE
+     Uses the Salesforce Id found in stage 2 - there is NO second ContactPointEmail lookup (Scenario 5).
+     Rule (unchanged): if the person's consent in Salesforce is "Opt out" / "Opt Out" / "Opt In Pending",
+     or the Lead was just created, set it to "Opt In" and remember it in @IsStatusupdate (used by stage 5).
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  VAR @ConsentStatusVal, @IFD_Rows, @Consent_SFID
+
+  /* A person who submits a form again is subscribing again: remove them from the unsubscribe-all list */
+  SET @deleteCount = DeleteData("Unsubscribe_From_All_Preferences", "EmailAddress", @EmailAddress)
+
+  /* Which Id to use: normally the one from stage 2. If the Function was not eligible (@Salesforce_ID empty)
+     but the person was found by the lookup, the found Id is still used for the consent update (as before). */
+  IF NOT EMPTY(@Salesforce_ID) THEN
+    SET @Consent_SFID = @Salesforce_ID
+  ELSE
+    SET @Consent_SFID = @Resolved_ID
+  ENDIF
+
+  IF NOT EMPTY(@Consent_SFID) THEN
+    IF Substring(@Consent_SFID,1,3) == "003" THEN
+      /* ----- the person is a CONTACT: the IFD record points to the Contact ----- */
+      SET @IFD_Rows = RetrieveSalesforceObjects("KPMG_Individual_Firm_Details__c", "id,KPMG_Consent_Status__c", "KPMG_ContactId__c", "=", @Consent_SFID)
+      IF RowCount(@IFD_Rows) > 0 THEN
+        SET @ConsentStatusVal = Field(Row(@IFD_Rows, 1), "KPMG_Consent_Status__c")
+        IF @ConsentStatusVal == "Opt out" OR @ConsentStatusVal == "Opt Out" OR @ConsentStatusVal == "Opt In Pending" OR @IsStatusupdate == "True" THEN
+          SET @IsStatusupdate = "True"
+          SET @updateRecord = UpdateSingleSalesforceObject("KPMG_Individual_Firm_Details__c", Field(Row(@IFD_Rows, 1), "id"), "KPMG_Consent_Status__c", "Opt In")
+          SET @deleteCount = DeleteData("Unsubscribe_From_All_Preferences", "EmailAddress", @EmailAddress)
+        ENDIF
+      ENDIF
+    ELSE
+      /* ----- the person is a LEAD: the IFD record points to the Lead ----- */
+      SET @IFD_Rows = RetrieveSalesforceObjects("KPMG_Individual_Firm_Details__c", "id,KPMG_Consent_Status__c", "KPMG_LeadId__c", "=", @Consent_SFID)
+      IF RowCount(@IFD_Rows) > 0 THEN
+        SET @ConsentStatusVal = Field(Row(@IFD_Rows, 1), "KPMG_Consent_Status__c")
+        IF @ConsentStatusVal == "Opt out" OR @ConsentStatusVal == "Opt Out" OR @ConsentStatusVal == "Opt In Pending" OR @IsStatusupdate == "True" THEN
+          SET @IsStatusupdate = "True"
+          SET @updateRecord = UpdateSingleSalesforceObject("KPMG_Individual_Firm_Details__c", Field(Row(@IFD_Rows, 1), "id"), "KPMG_Consent_Status__c", "Opt In")
+        ENDIF
+      ENDIF
+    ENDIF
+  ENDIF
+]%%
+<script runat="server">
+  } catch (eConsent) {
+    CFP_Fail("CONSENT_UPDATE", eConsent);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 4.2 - AUTO SUPPRESSION LIST UPDATE
+     The person is subscribing, so remove the email from Global_Suppression_List.
+     Not fatal (as before): if it fails the submission continues, but the failure is now written to the
+     error log (it used to be only printed on the page).
+     ======================================================================================== */
+  try {
+    Platform.Function.DeleteData("Global_Suppression_List", ["Email Address"], [CFP_Get("EmailAddress")]);
+  } catch (eSupp) {
+    CFP_LogError("SUPPRESSION_LIST_UPDATE", eSupp, "ERROR_NONFATAL");
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 5 - ASSOCIATED EMAIL ADDRESSES
+     A person can have several email addresses (several ContactPointEmail rows for the same Lead/Contact).
+     When the consent was set to Opt In in stage 4, the person's OTHER addresses are re-subscribed too:
+     removed from the unsubscribe lists, set Active in Marketing Cloud and written to Audit_Preferences.
+     The lookup of the other addresses runs ONLY when that result is needed (consent was updated);
+     the old page ran it for every submission and then ignored the result.
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  IF @IsStatusupdate == "True" AND NOT EMPTY(@Consent_SFID) THEN
+    /* all addresses of the same Lead/Contact except the one just submitted */
+    SET @AssociatedEmailAddressList = RetrieveSalesforceObjects("ContactPointEmail", "EmailAddress", "KPMG_Lead_Contact_Id__c", "=", @Consent_SFID, "EmailAddress", "!=", @EmailAddress)
+
+    IF RowCount(@AssociatedEmailAddressList) > 0 THEN
+      FOR @counter = 1 TO RowCount(@AssociatedEmailAddressList) DO
+        SET @AssociatedEmail = Field(Row(@AssociatedEmailAddressList, @counter), "EmailAddress")
+        SET @deleteCount1 = DeleteData("Unsubscribe_From_All_Preferences", "EmailAddress", @AssociatedEmail)
+        SET @deleteCount2 = DeleteData("Unsubscriber_Preferences_Email", "EmailAddress", @AssociatedEmail)
+
+        /* START GSENHANCEM-16408: make the associated address an Active subscriber again */
+        SET @assocSub = CreateObject("Subscriber")
+        SetObjectProperty(@assocSub, "Status", "Active")
+        SetObjectProperty(@assocSub, "SubscriberKey", @AssociatedEmail)
+        SET @assocStatus = InvokeUpdate(@assocSub)
+        /* END GSENHANCEM-16408 */
+
+        /* audit trail of the re-subscription */
+        SET @insert3 = InsertDE("Audit_Preferences", "Salesforce_ID", @Consent_SFID, "EmailAddress", @AssociatedEmail, "Date", Now(), "Initiated_By", @Name, "Activity", "Subscribed", "Enrollment_Type", "Self-Enrolled", "Source", "External Centralized Form Processor")
+      NEXT @counter
+    ENDIF
+  ENDIF
+]%%
+<script runat="server">
+  } catch (eAssoc) {
+    CFP_Fail("ASSOCIATED_EMAILS", eAssoc);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 6 - SALESFORCE NAME + PREFERENCES (GEE-33224)
+     The first block reads first / last name of the Lead or Contact from Salesforce. The second block
+     (Preference 1 to 10) is the existing preference logic, copied unchanged from the previous page:
+     it saves the posted preferences to Subscriber_Preferences_Email and writes Audit_Preferences.
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  IF Substring(@Salesforce_ID,1,3) == "003" THEN
+    SET @UpdateSFName = RetrieveSalesforceObjects('Contact', 'FirstName, LastName', 'Id', '=', @Salesforce_ID)
+    SET @rc = RowCount(@UpdateSFName)
+ 
+    IF @rc > 0 THEN
+      SET @row = Row(@UpdateSFName,1)
+      SET @SC_First_Name = Field(@row, 'FirstName')
+      SET @SC_Last_Name = Field(@row, 'LastName')
+    ENDIF 
+  ELSE
+    SET @UpdateSFName = RetrieveSalesforceObjects('Lead', 'FirstName, LastName', 'Id', '=', @Salesforce_ID)
+    SET @rc = RowCount(@UpdateSFName)
+ 
+    IF @rc > 0 THEN
+      SET @row = Row(@UpdateSFName,1)
+      SET @SC_First_Name = Field(@row, 'FirstName')
+      SET @SC_Last_Name = Field(@row, 'LastName')
+    ENDIF
+  ENDIF
+
+  SET @SC_Full_Name = Concat(@SC_First_Name, ' ', @SC_Last_Name)
+
+  /* Check Preference Atrributes 1-10 */
+  FOR @i=1 TO 10 DO
+    SET @rowset = BuildRowsetFromString(treatascontent(Concat('%','%=v(@Preference',@i,')=%','%')),'|')
+    IF RowCount(@rowset) > 0 THEN
+      FOR @i1 = 1 TO RowCount(@rowset) DO
+
+        SET @row = Row(@rowset, @i1)
+        SET @Preference_ID = Field(@row,1)
+
+        /* Key for lookup */
+        SET @Preference_Enrollment_Key = Concat(@EmailAddress, '|', @Preference_ID)
+        SET @prefRow = LookupRows("Subscriber_Preferences_Email", "Preference_Enrollment", @Preference_Enrollment_Key)
+        SET @Is_Preference_exist = RowCount(@prefRow)
+        /* Start of GEE-33224 */
+        SET @nowDT = Now()
+        SET @Source_External = "External Centralized Form Processor"
+
+        /* ===================================================================
+           SCENARIO 1: NEW ENROLLMENT (NO EXISTING ROW)
+           - Insert new row
+           - Set Date (original), ConfirmedEnrollmentDate (original), and LastModifiedDate = now
+           =================================================================== */
+
+        IF @Is_Preference_exist == 0 THEN
+          SET @insertPref = InsertDE(
+            "Subscriber_Preferences_Email",
+            "Salesforce_ID", @Salesforce_ID,
+            "EmailAddress", @EmailAddress,
+            "Preference_ID", @Preference_ID,
+            "Enrollment_Type", "Self-Enrolled",
+            "Date", @nowDT,                      /* ORIGINAL enrollment date */
+            "LastModifiedDate", @nowDT,          /* NEW field — set to now on insert */
+            "Preference_Enrollment", @Preference_Enrollment_Key,
+            "Initiated_By", @SC_Full_Name,
+            "Source", @Source_External
+          )
+          /* Remove if previously unsubscribed */
+          SET @Pref_unenrolled = Concat(@EmailAddress, '|', @Preference_ID)
+          SET @unsubscribed_pref = Lookup("Unsubscriber_Preferences_Email", "EmailAddress", "Preference_Unenrollment", @Pref_unenrolled)
+          IF NOT EMPTY(@unsubscribed_pref) THEN
+            SET @deleteUnsub = DeleteData("Unsubscriber_Preferences_Email", "Preference_Unenrollment", @Pref_unenrolled)
+          ENDIF
+
+        ELSE
+          /* Existing Record Found - preserve Date & ConfirmedEnrollmentDate, only update LastModifiedDate and the metadata required */
+          SET @pref = Row(@prefRow, 1)
+          SET @currentType = Field(@pref, "Enrollment_Type")
+          SET @currentSource = Field(@pref, "Source")
+
+          /* ===================================================================
+             SCENARIO 2:
+             EXISTING PREFERENCE → CURRENTLY NOT SELF-ENROLLED
+             → CHANGE TO SELF-ENROLLED + UPDATE LastModifiedDate
+             (Do NOT modify Date or ConfirmedEnrollmentDate)
+             =================================================================== */
+
+          IF @currentType != "Self-Enrolled" THEN
+            SET @updatePref = UpdateDE(
+              "Subscriber_Preferences_Email", 1,
+              "Preference_Enrollment", @Preference_Enrollment_Key,
+              "Salesforce_ID", @Salesforce_ID,
+              "Enrollment_Type", "Self-Enrolled",
+              "Initiated_By", @SC_Full_Name,
+              "Source", @Source_External,            /* update source */
+              "LastModifiedDate", @nowDT             /* NEW requirement: always update LastModifiedDate */
+            )
+
+          /* ===================================================================
+             SCENARIO 3:
+             EXISTING + SELF-ENROLLED BUT SOURCE ≠ EXTERNAL CFP
+             → UPDATE SOURCE + LastModifiedDate
+             (Do NOT modify Date or ConfirmedEnrollmentDate)
+             =================================================================== */
+          ELSEIF @currentType == "Self-Enrolled" AND @currentSource != @Source_External THEN
+            SET @updatePref = UpdateDE(
+              "Subscriber_Preferences_Email", 1,
+              "Preference_Enrollment", @Preference_Enrollment_Key,
+              "Salesforce_ID", @Salesforce_ID,
+              "Source", @Source_External,
+              "Initiated_By", @SC_Full_Name,
+              "LastModifiedDate", @nowDT
+            )
+
+          /* ===================================================================
+             SCENARIO 4:
+             EXISTING + SELF-ENROLLED + SOURCE = EXTERNAL CFP
+             → ONLY UPDATE LastModifiedDate
+             (Do NOT modify Date or ConfirmedEnrollmentDate)
+             =================================================================== */
+
+          ELSEIF @currentType == "Self-Enrolled" AND @currentSource == @Source_External THEN
+            SET @updatePref = UpdateDE(
+              "Subscriber_Preferences_Email", 1,
+              "Preference_Enrollment", @Preference_Enrollment_Key,
+              "Salesforce_ID", @Salesforce_ID,
+              "LastModifiedDate", @nowDT,
+              "Initiated_By", @SC_Full_Name
+            )
+
+          ENDIF
+        ENDIF
+
+        /* ----------------------------------------------------
+           AUDIT ALWAYS INSERTED — ALL 4 SCENARIOS
+           ---------------------------------------------------- */
+
+        SET @insertAudit = InsertDE(
+          "Audit_Preferences",
+          "Salesforce_ID", @Salesforce_ID,
+          "EmailAddress", @EmailAddress,
+          "Preference_ID", @Preference_ID,
+          "Date", @nowDT,
+          "Initiated_By", @SC_Full_Name,
+          "Activity", "Subscribed",
+          "Enrollment_Type", "Self-Enrolled",
+          "Source", @Source_External
+        )
+
+      /* End of GEE-33224 */
+
+      NEXT @i1
+    ENDIF
+  NEXT @i
+]%%
+<script runat="server">
+  } catch (ePref) {
+    CFP_Fail("PREFERENCE_PROCESSING", ePref);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 7 - SUBSCRIBER ACTIVATION (GSENHANCEM-12892) AND API CREDENTIALS
+     Makes sure the person is an Active subscriber in Marketing Cloud (All Subscribers), then reads and
+     decrypts the API credentials from ENT.API_Details. The credentials are needed in stage 8 to call the
+     Journey Builder REST API. All of this is unchanged from the previous page.
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  /* GSENHANCEM-12892-Start*/
+  /* Start- Updating allsubs status to unsubscribe using email as subscriberkey */
+  VAR @SubsKey1, @mysub1, @SubsKey2, @mysub2
+  SET @SubsKey1 = @EmailAddress 
+  SET @mysub1 = CreateObject("Subscriber")
+  SetObjectProperty(@mysub1, "Status", "Active")
+  SetObjectProperty(@mysub1, "SubscriberKey", @SubsKey1)
+  SET @statusCode1 = InvokeUpdate(@mysub1)
+
+  /*Start- Updating allsubs status to unsubscribe using SalesforceID as subscriberkey */ 
+  SET @SubsKey2 = @Salesforce_ID
+  SET @mysub2 = CreateObject("Subscriber")
+  SetObjectProperty(@mysub2, "Status", "Active")
+  SetObjectProperty(@mysub2, "SubscriberKey", @SubsKey2)
+  SET @statusCode2 = InvokeUpdate(@mysub2)
+  /* GSENHANCEM-12892-end*/
+
+  SET @PK_Email = Concat(@EmailAddress, "|", Now())
+  SET @Client_ID_ENC = Lookup('ENT.API_Details', 'Encrypted Client Id', 'API Name', 'KPMGUS_DEFAULT_API')
+  SET @Client_Secret_ENC = Lookup('ENT.API_Details', 'Encrypted Client Secret', 'API Name', 'KPMGUS_DEFAULT_API')
+  SET @Authentication_Base_URI_ENC = Lookup('ENT.API_Details', 'Encrypted Authentication Base URI', 'API Name', 'KPMGUS_DEFAULT_API')
+  SET @Client_ID_DEC = DecryptSymmetric(
+    @Client_ID_ENC,
+    "AES",
+    @null,
+    "password",
+    @null,
+    "0000000000000000",
+    @null,
+    "00000000000000000000000000000000"
+  )
+  SET @Client_Secret_DEC = DecryptSymmetric(
+    @Client_Secret_ENC,
+    "AES",
+    @null,
+    "password",
+    @null,
+    "0000000000000000",
+    @null,
+    "00000000000000000000000000000000"
+  )
+  SET @Authentication_Base_URI_DEC = DecryptSymmetric(
+    @Authentication_Base_URI_ENC,
+    "AES",
+    @null,
+    "password",
+    @null,
+    "0000000000000000",
+    @null,
+    "00000000000000000000000000000000"
+  )
+  SET @MID_Value = AuthenticatedMemberID()
+]%%
+<script runat="server">
+  } catch (eSubs) {
+    CFP_Fail("SUBSCRIBER_ACTIVATION_OR_API_CREDENTIALS", eSubs);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 8 - JOURNEY BUILDER
+     Same approach as the Internal CFP backend page:
+       a) authenticate with the decrypted API credentials and get an access token,
+       b) trigger the DYNAMIC journeys of this form (event ids from FormName_Event_ID_Mapping_DE, GEE-9867),
+       c) read the event key of the Centralized Form Processor journey from
+          ENT.Journey_API_Event_Key_Config_DE (row of this business unit's MID, column
+          CentralizedFormProcessor_Journey) and trigger that journey.
+     The Contact Us journey and the Internal Notification journey do NOT exist on the External page.
+     Every journey receives the same data: all form fields + EmailAddress, PK_Email, Salesforce_ID.
+     Failure rules: a failing DYNAMIC journey is logged and the page continues (as before); a failure of
+     the token / configuration lookup / Centralized Form journey call fails the submission.
+     ======================================================================================== */
+  var jContentType = "application/json";
+
+  /* The data sent with every journey entry (all form fields, same list as the Internal CFP page except
+     Inquiry_Type, which does not exist on the External page). */
+  function CFP_BuildJourneyData() {
+    var cols = ["FirstName","LastName","Company","JobTitle","Country","Phone","CID","medium","MID","term",
+                "Campaign","Source","content","db_annual_sales","db_city","db_company_name","db_country_name",
+                "db_employee_count","db_industry","db_primary_naics","db_primary_sic","db_state",
+                "db_street_address","db_sub_industry","db_web_site","db_zip","confirmationPage","formName",
+                "pageURL","Full_Page_URL","conditionalProcessing","Preference1","Preference2","Preference3",
+                "Preference4","Preference5","Preference6","Preference7","Preference8","Preference9",
+                "Preference10","Tactic_ID","Department","Level","Function","Message","Lead_Source",
+                "Lead_Source_Detail","RFP_Attachments","marketingTheme","marketingCampaign",
+                "marketingSubCampaign","Salesforce_ID"];
+    var data = { "EmailAddress": CFP_Get("EmailAddress"), "PK_Email": CFP_Get("PK_Email") };
+    for (var i = 0; i < cols.length; i++) { data[cols[i]] = CFP_Get(cols[i]); }
+    return data;
+  }
+
+  /* Put the person into one journey. A response other than 201 (Created) is written to the error log as
+     NON-FATAL (the old page ignored it silently). HTTP.Post errors are thrown to the caller. */
+  function CFP_FireJourney(eventsUrl, eventKey, headerNames, headerValues, stage) {
+    var body = { "ContactKey": CFP_Get("EmailAddress"), "EventDefinitionKey": eventKey, "Data": CFP_BuildJourneyData() };
+    var res = HTTP.Post(eventsUrl, jContentType, Stringify(body), headerNames, headerValues);
+    if (res.StatusCode != 201) {
+      var resText = "";
+      try { resText = CFP_Trunc(String(res.Response[0]), 500); } catch (eRes) {}
+      CFP_LogError(stage, "Journey entry returned HTTP " + res.StatusCode + " for event " + eventKey + " : " + resText, "ERROR_NONFATAL", res.StatusCode);
+    }
+  }
+
+  try {
+    var jMID = CFP_Get("MID_Value");   /* Marketing Cloud business unit id, set in stage 7 */
+
+    /* (a) access token - credentials were decrypted in stage 7 */
+    var jAccessToken = null;
+    var jRestUrl = null;
+    var jPayload = {
+      client_id: CFP_Get("Client_ID_DEC"),
+      client_secret: CFP_Get("Client_Secret_DEC"),
+      grant_type: "client_credentials",
+      account_id: jMID
+    };
+    var jTokenReq = HTTP.Post(CFP_Get("Authentication_Base_URI_DEC") + "/v2/token", jContentType, Stringify(jPayload));
+    if (jTokenReq.StatusCode == 200) {
+      var jTokenResp = Platform.Function.ParseJSON(jTokenReq.Response[0]);
+      jAccessToken = jTokenResp.access_token;
+      jRestUrl = jTokenResp.rest_instance_url;
+    } else {
+      /* Journeys cannot be triggered without a token. As before the page continues, but the problem is logged. */
+      CFP_LogError("JOURNEY_AUTH", "Access token request returned HTTP " + jTokenReq.StatusCode + " - journeys were not triggered", "ERROR_NONFATAL", jTokenReq.StatusCode);
+    }
+
+    if (CFP_Get("EmailAddress") !== "" && jAccessToken !== null && jAccessToken !== undefined) {
+      var jHeaderNames = ["Authorization"];
+      var jHeaderValues = ["Bearer " + jAccessToken];
+      var jEventsUrl = String(jRestUrl);
+      if (jEventsUrl.charAt(jEventsUrl.length - 1) !== "/") { jEventsUrl += "/"; }
+      jEventsUrl += "interaction/v1/events";
+
+      /* (b) DYNAMIC JOURNEYS: FormName_Event_ID_Mapping_DE maps a formName to one or more journey event ids.
+         One failing journey must not stop the others, so each one has its own try / catch. */
+      try {
+        var jMapDE = DataExtension.Init(CFP_JOURNEY_MAP_DE);
+        var jMapRows = jMapDE.Rows.Lookup(["formName"], [CFP_Get("formName")]);
+        if (jMapRows === null || jMapRows === undefined) { jMapRows = []; }
+        for (var j = 0; j < jMapRows.length; j++) {
+          try {
+            CFP_FireJourney(jEventsUrl, jMapRows[j].Event_ID, jHeaderNames, jHeaderValues, "JOURNEY_DYNAMIC");
+          } catch (eDyn) {
+            CFP_LogError("JOURNEY_DYNAMIC", eDyn, "ERROR_NONFATAL");
+          }
+        }
+      } catch (eDynInit) {
+        CFP_LogError("JOURNEY_DYNAMIC", eDynInit, "ERROR_NONFATAL");
+      }
+
+      /* (c) CENTRALIZED FORM PROCESSOR JOURNEY - event key comes from the configuration DE, never hard-coded */
+      var jCfgRows = Platform.Function.LookupRows(CFP_JOURNEY_CONFIG_DE, "MID", jMID);
+      var jCfpKey = "";
+      if (jCfgRows && jCfgRows.length > 0) {
+        jCfpKey = jCfgRows[0]["CentralizedFormProcessor_Journey"] || "";
+      }
+      if (jCfpKey !== "") {
+        CFP_FireJourney(jEventsUrl, jCfpKey, jHeaderNames, jHeaderValues, "JOURNEY_CFP");
+      } else {
+        CFP_LogError("JOURNEY_CFP", "No CentralizedFormProcessor_Journey event key found in " + CFP_JOURNEY_CONFIG_DE + " for MID " + jMID + " - journey was not triggered", "ERROR_NONFATAL");
+      }
+    }
+  } catch (eJourney) {
+    CFP_Fail("JOURNEY_PROCESSING", eJourney);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 9 - CONSENT SAFETY NET (GEE-18206 / INC4220770) - logic unchanged
+     For a Lead, read the consent status of its IFD record once more and set "Opt In" if it is not.
+     Needed because the IFD of a brand-new Lead may not have existed yet when stage 4 ran.
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  /* Proceed only if a Salesforce Id is present */
+  IF NOT EMPTY(@Salesforce_ID) THEN
+
+    /* Retrieve the IFD record Id and its current consent status */
+    SET @firmDetailsRecords = RetrieveSalesforceObjects("KPMG_Individual_Firm_Details__c", "Id, KPMG_Consent_Status__c", "KPMG_LeadId__c", "=", @Salesforce_ID)
+
+    IF RowCount(@firmDetailsRecords) > 0 THEN
+      SET @firmDetailsRecord = Row(@firmDetailsRecords, 1)
+      SET @firmDetailsId = Field(@firmDetailsRecord, "Id")
+      SET @currentStatus = Field(@firmDetailsRecord, "KPMG_Consent_Status__c")
+
+      /* Update the IFD consent status to "Opt In" */
+      IF @currentStatus != "Opt In" THEN
+        SET @updateResult = UpdateSingleSalesforceObject("KPMG_Individual_Firm_Details__c", @firmDetailsId, "KPMG_Consent_Status__c", "Opt In")
+      ENDIF
+    ENDIF
+
+  ENDIF
+]%%
+<script runat="server">
+  } catch (eSafety) {
+    CFP_Fail("CONSENT_SAFETY_NET", eSafety);
+  }
+</script>
+
+<script>
+  /* STAGE 10 - everything succeeded: the browser is sent to the confirmation page posted by the form.
+     (This is client-side JavaScript, so the page itself answers HTTP 200.) */
+  window.location.replace("%%=v(@confirmationPage)=%%");
+</script>
