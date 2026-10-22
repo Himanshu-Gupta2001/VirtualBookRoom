@@ -58,3 +58,15 @@
  EmailAddress		350	Yes	
  Page_Type		150	Yes	
  ErrorMessage		4000	Yes
+
+GEE-40252
+What is the problem?
+Marketing Cloud has hundreds of unused SQL Query and Script Activities spread across different folders. These activities require manual cleanup, resulting in an increasing number of inactive assets and making the Marketing Cloud environment more difficult to manage and maintain efficiently.
+
+What will we build to fix it?
+Build an automated cleanup process that identifies unused SQL Query and Script Activities and automatically deletes them using Marketing Cloud APIs.
+
+Why does the client care?
+•	Reduce manual effort required to clean up unused activities.
+•	Improve environment maintainability and governance by removing unnecessary assets.
+•	Provide a repeatable and scalable solution for ongoing cleanup.
