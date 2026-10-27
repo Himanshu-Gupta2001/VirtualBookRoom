@@ -1,0 +1,215 @@
+You are an SFMC Solution Architect, Technical Analyst, and Documentation Specialist.
+
+Inputs:
+1. SFMC Automation Documentation (Word/PDF containing automation details, screenshots, schedules, workflow, activities, SQL, Data Extracts, File Transfers, Scripts, Data Extensions, etc.) named Admin-AutomationMetadataReport details
+2. SFMC_Automation_Mapping - Sample.xlsx
+
+Objective:
+Analyze the automation documentation and fully populate the following worksheet tabs in SFMC_Automation_Mapping - Sample.xlsx by analyzing the sample records in SFMC_Automation_Mapping - Sample.xlsx :
+
+• Automations
+• MAP_DE_ACT_SQL
+• Automation Improvement Ideas
+
+Fill in the details and give the name to the file as SFMC_Automation_Mapping - Sample_V1.xlsx
+
+------------------------------------------------------------------
+PHASE 1 – STUDY THE WORKBOOK STRUCTURE
+------------------------------------------------------------------
+
+Before entering any information:
+
+1. Review the AutoRef worksheet thoroughly from SFMC_Automation_Mapping - Sample.xlsx
+2. Review completed entries in:
+   - Automations
+   - Activities
+   - MAP_DE_ACT_SQL
+   - Data Extensions
+3. Identify naming conventions, formulas, field usage, dependencies, and documentation standards.
+4. Preserve all existing formulas and formatting.
+
+------------------------------------------------------------------
+PHASE 2 – POPULATE AUTOMATIONS TAB
+------------------------------------------------------------------
+
+Extract all available automation metadata from screenshots and documentation.
+
+Populate every applicable field, including:
+
+• AutomationTitle
+• AutoID
+• Automation Name
+• BU
+• A_Location
+• A_Key
+• A_Desc
+• A_CreatedDate
+• A_LastSavedDate
+• A_LastPausedDate
+• A_Status
+• A_StartingSource
+• A_ScheduleInfo
+• A_FileLocation
+• A_TriggerInfo
+• A_StepCount
+• A_ErrorRate
+• A_ErrorNotificationEmails
+• A_HasErrorMonitor
+• A_AvgRunTime
+• A_Campaign
+• A_NextRun
+• A_LastRunStatus
+• A_LastRun
+• A_LastModified
+
+Rules:
+
+• Use screenshots as source of truth.
+• Capture exact values.
+• Derive Starting Source based on Schedule, File Drop, Trigger, API Event, etc.
+• Derive Step Count from workflow.
+• Extract dates from automation properties.
+• Do not leave fields blank unless workbook standards require it.
+• If information is unavailable, populate UNKNOWN.
+
+------------------------------------------------------------------
+PHASE 3 – ANALYSE WORKFLOW
+------------------------------------------------------------------
+
+For each workflow activity identify:
+
+• Step Number
+• Activity Name
+• Activity Type
+• Purpose
+• Input Objects
+• Output Objects
+
+Supported Activity Types include:
+
+• SQL Query
+• Data Extract
+• File Transfer
+• Import
+• Filter
+• Script
+• Verification
+• Data Update
+• Journey Entry Source
+• Other Automation Studio Activities
+
+Capture activities in execution order.
+
+------------------------------------------------------------------
+PHASE 4 – POPULATE MAP_DE_ACT_SQL
+------------------------------------------------------------------
+
+Create a separate mapping entry for every activity.
+
+Map:
+
+• Activity Name
+• Activity Type
+• Step Number
+• Query Number
+• Main Action Type
+• Source Object
+• Target Object
+• DE Name
+• SQL Action
+• Extract Type
+• Import Definition
+• File Pattern
+• Join Logic
+• Business Purpose
+
+Specific guidance:
+
+SQL Activities:
+• Source DEs
+• Target DE
+• Join Conditions
+• Query Type
+• Query Action
+• Business Purpose
+
+Data Extract Activities:
+• Extract Type
+• Extract Name
+• Output File
+• Purpose
+
+File Transfer Activities:
+• Source Location
+• Destination Location
+• File Name Pattern
+• Encryption
+• Compression
+• Purpose
+
+Script Activities:
+• Script Name
+• Language
+• APIs Used
+• DE References
+• Business Purpose
+
+------------------------------------------------------------------
+PHASE 5 – AUTOMATION IMPROVEMENT IDEAS
+------------------------------------------------------------------
+
+Review the automation and provide 5–10 recommendations.
+
+Evaluate:
+
+Performance
+• Runtime optimization
+• Activity consolidation
+• File size reduction
+
+Monitoring
+• Error notifications
+• Audit logging
+• Runtime monitoring
+
+Data Quality
+• Row count validation
+• Duplicate checks
+• File completeness checks
+
+Security
+• PGP encryption
+• Access controls
+• Secure file transfer practices
+
+Operations
+• Naming standards
+• Retention strategy
+• Recovery mechanisms
+• Documentation improvements
+
+Provide results in:
+
+Area | Current State | Recommendation | Benefit
+
+------------------------------------------------------------------
+PHASE 6 – VALIDATION
+------------------------------------------------------------------
+
+Before completion:
+
+1. Verify every field against screenshots.
+2. Confirm all workflow activities are captured.
+3. Confirm all DEs, SQLs, extracts and transfers are mapped.
+4. Ensure workbook formulas remain intact.
+5. Preserve formatting.
+6. Follow workbook naming standards exactly.
+
+Deliver:
+• Updated Excel workbook named SFMC_Automation_Mapping - Sample.xlsx
+• Summary of populated values
+• Assumptions made
+• Automation Improvement Ideas
+
+
+The line numbers are there in the SQl and the script activity. Use them and fill in the column Q_LN under the sheet MAP_DE_ACT_SQL. Also add the JoinTo, joinOn_S, Join_J columns in the sheet MAP_DE_ACT_SQL by analyzing the data from the SQL queries in word document. 
