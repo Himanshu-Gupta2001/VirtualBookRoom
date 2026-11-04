@@ -1,0 +1,1280 @@
+<script runat="server">
+  Platform.Load("Core","1");
+
+  var CFP_ALWAYS_WAIT      = false;
+  var CFP_CREATE_WAIT_MS   = 3000;   /* length of the wait in milliseconds */
+  var CFP_CPE_SYNC_DE      = "ENT.ContactPointEmail_Salesforce_32";
+  var CFP_ERROR_MODE       = "THROW";
+  var CFP_ERROR_URL        = "https://www.kpmg.us/errors/500.html";   /* used only by mode REDIRECT */
+
+  /* Data Extensions used by this page */
+  var CFP_ERROR_LOG_DE      = "Centralized_Form_Processor_DE_Error_Log";
+  var CFP_JOURNEY_CONFIG_DE = "ENT.Journey_API_Event_Key_Config_DE";   /* holds the journey event keys per MID */
+  var CFP_JOURNEY_MAP_DE    = "FormName_Event_ID_Mapping_DE";          /* journeys per formName (GEE-9867) */
+
+  /* Start time of the request, used only to report "t=+ms" in error-log messages */
+  var CFP_START = new Date().getTime();
+
+  /* Hand the sync DE name to AMPscript */
+  Variable.SetValue("@CPE_Sync_DE", CFP_CPE_SYNC_DE);
+
+  /* FIELD TABLE - one row per posted form field:   [ name, maximum length ] */
+  var CFP_FIELDS = [
+    ["FirstName",100], ["LastName",100], ["EmailAddress",254], ["Company",250],
+    ["JobTitle",100], ["Country",50], ["Phone",50], ["CID",100],
+    ["medium",100], ["MID",100], ["term",100], ["Campaign",100],
+    ["Source",100], ["content",100],
+    ["db_annual_sales",50], ["db_city",50], ["db_company_name",100], ["db_country_name",50],
+    ["db_employee_count",50], ["db_industry",50], ["db_primary_naics",50], ["db_primary_sic",50],
+    ["db_state",50], ["db_street_address",100], ["db_sub_industry",50], ["db_web_site",100],
+    ["db_zip",50],
+    ["confirmationPage",1000], ["formName",250], ["pageURL",4000], ["conditionalProcessing",250],
+    ["Preference1",100], ["Preference2",100], ["Preference3",100], ["Preference4",100],
+    ["Preference5",100], ["Preference6",100], ["Preference7",100], ["Preference8",100],
+    ["Preference9",100], ["Preference10",100],
+    ["Tactic_ID",50], ["Lead_Source",50], ["Message",4000], ["Function",50], ["Level",50],
+    ["Department",50], ["Lead_Source_Detail",100], ["marketingTheme",256],
+    ["marketingCampaign",256], ["marketingSubCampaign",256], ["Full_Page_URL",4000]
+  ];
+  
+  /* Intended HTTP status per failing stage (used by CFP_ERROR_MODE = "THROW" and written to the log). */
+  var CFP_STATUS_MAP = {
+    "INPUT_VALIDATION": 400, "EMAIL_VALIDATION": 400,
+    "SF_INTEGRATION": 502, "CONSENT_UPDATE": 502, "ASSOCIATED_EMAILS": 502,
+    "PREFERENCE_PROCESSING": 502, "CONSENT_SAFETY_NET": 502,
+    "STAGING_INSERT": 500, "DATA_PROMOTION": 500,
+    "SUBSCRIBER_ACTIVATION_OR_API_CREDENTIALS": 500, "JOURNEY_PROCESSING": 500
+  };
+
+  /* HELPER FUNCTIONS (used by every stage below) */
+
+  function CFP_Get(name) {
+    var v = Variable.GetValue("@" + name);
+    if (v === null || v === undefined) { return ""; }
+    return String(v);
+  }
+
+  function CFP_Trunc(s, n) {
+    s = String(s);
+    return (s.length > n) ? s.substring(0, n) : s;
+  }
+
+  function CFP_ErrText(e) {
+    if (e === null || e === undefined) { return "Unknown error"; }
+    if (typeof e === "string") { return e; }
+    var t = "";
+    try { if (e.message) { t += String(e.message); } } catch (x1) {}
+    try { if (e.description) { t += (t ? " | " : "") + String(e.description); } } catch (x2) {}
+    try { var s = Stringify(e); if (s && s !== "{}") { t += (t ? " | " : "") + s; } } catch (x3) {}
+    return t ? t : String(e);
+  }
+
+  function CFP_Sleep(milliseconds) {
+    var start = new Date().getTime();
+    for (var i = 0; i < 1e7; i++) {
+      if ((new Date().getTime() - start) > milliseconds) { break; }
+    }
+  }
+
+  function CFP_LogError(stage, detail, level, httpStatus) {
+    var status = httpStatus ? String(httpStatus) : "";
+    var msg = "[" + stage + "] " + CFP_ErrText(detail) +
+              " | HTTP=" + status +
+              " | SFID=" + CFP_Get("Salesforce_ID") +
+              " | LOOKUP=" + CFP_Get("Resolved_From") +
+              " | t=+" + (new Date().getTime() - CFP_START) + "ms" +
+              ((level === "ERROR_NONFATAL") ? " | NON-FATAL (submission continued)" : "");
+    msg = CFP_Trunc(msg, 3999);
+    var names = [], values = [];
+    for (var i = 0; i < CFP_FIELDS.length; i++) {
+      names.push(CFP_FIELDS[i][0]);
+      values.push(CFP_Trunc(CFP_Get(CFP_FIELDS[i][0]), CFP_FIELDS[i][1]));
+    }
+    names.push("RFP_Attachments"); values.push(CFP_Trunc(CFP_Get("RFP_Attachments"), 50));
+    names.push("PrimaryKey");      values.push(CFP_Trunc(CFP_Get("PrimaryKey"), 50));
+    names.push("Page_Type");       values.push("External");
+    names.push("ErrorMessage");    values.push(msg);
+    try {
+      Platform.Function.InsertData(CFP_ERROR_LOG_DE, names, values);
+    } catch (eLog) {
+      try {
+        Platform.Function.InsertData(CFP_ERROR_LOG_DE,
+          ["FirstName","LastName","EmailAddress","ErrorMessage"],
+          [CFP_Trunc(CFP_Get("FirstName"),100), CFP_Trunc(CFP_Get("LastName"),100),
+           CFP_Trunc(CFP_Get("EmailAddress"),254), msg]);
+      } catch (eLog2) { /* nothing more can be done - never block the response */ }
+    }
+  }
+
+  function CFP_ErrorResponse(httpStatus, stage) {
+    var ref = "CFP error " + httpStatus + " [" + stage + "] ref " + CFP_Get("PrimaryKey");
+    if (CFP_ERROR_MODE === "REDIRECT") {
+      Platform.Response.Redirect(CFP_ERROR_URL);
+    } else if (CFP_ERROR_MODE === "RAISE_ERROR") {
+      Platform.Function.RaiseError(ref, true, "statusCode", String(httpStatus));
+    } else {
+      throw ref;    /* mode THROW: unhandled script error -> HTTP 500 error response */
+    }
+  }
+
+  function CFP_Fail(stage, e) {
+    var st = CFP_STATUS_MAP[stage] || 500;
+    CFP_LogError(stage, e, "ERROR", st);
+    CFP_ErrorResponse(st, stage);
+  }
+</script>
+
+%%[
+  /* ==========================================================================================
+     STAGE 1 - READ THE POSTED PARAMETERS
+     ========================================================================================== */
+  VAR @SC_First_Name, @SC_Last_Name, @SC_Full_Name
+  
+  SET @guid = GUID()
+  SET @guid = Concat(GUID(), "")
+  SET @guidSubstring = Substring(@guid,1,8)
+  SET @guidUppercase = Uppercase(@guidSubstring)
+  SET @PrimaryKey = Concat('EX-',@guidUppercase)
+  SET @Page_Type1 = 'External'
+
+  SET @FirstName = RequestParameter('FirstName')
+  SET @LastName = RequestParameter('LastName')
+  SET @EmailAddress = RequestParameter('EmailAddress')
+  SET @Company = RequestParameter('Company')
+  SET @JobTitle = RequestParameter('Title')
+  SET @Country = RequestParameter('Country')
+  SET @Phone = RequestParameter('busPhone')
+  SET @CID = RequestParameter('CID')
+  SET @medium = RequestParameter('medium')
+  SET @MID = RequestParameter('MID')
+  SET @term = RequestParameter('term')
+  SET @Campaign = RequestParameter('Campaign')
+  SET @Source = RequestParameter('Source')
+  /*SET @UTM_Medium = RequestParameter('UTM_Medium')*/
+  SET @content = RequestParameter('content')
+  SET @db_annual_sales = RequestParameter('db_annual_sales')
+  SET @db_city = RequestParameter('db_city')
+  SET @db_company_name = RequestParameter('db_company_name')
+  SET @db_country_name = RequestParameter('db_country_name')
+  SET @db_employee_count = RequestParameter('db_employee_count')
+  SET @db_industry = RequestParameter('db_industry')
+  SET @db_primary_naics = RequestParameter('db_primary_naics')
+  SET @db_primary_sic = RequestParameter('db_primary_sic')
+  SET @db_state = RequestParameter('db_state')
+  SET @db_street_address = RequestParameter('db_street_address')
+  SET @db_sub_industry = RequestParameter('db_sub_industry')
+  SET @db_web_site = RequestParameter('db_web_site')
+  SET @db_zip = RequestParameter('db_zip')
+  SET @confirmationPage = RequestParameter('confirmationPage')
+  SET @formName = RequestParameter('formName')
+  SET @pageURL = RequestParameter('pageURL')
+  SET @conditionalProcessing = RequestParameter('conditionalProcessing')
+  SET @Preference1 = RequestParameter('mktAttribute1')
+  SET @Preference2 = RequestParameter('mktAttribute2')
+  SET @Preference3 = RequestParameter('mktAttribute3')
+  SET @Preference4 = RequestParameter('mktAttribute4')
+  SET @Preference5 = RequestParameter('mktAttribute5')
+  SET @Preference6 = RequestParameter('mktAttribute6')
+  SET @Preference7 = RequestParameter('mktAttribute7')
+  SET @Preference8 = RequestParameter('mktAttribute8')
+  SET @Preference9 = RequestParameter('mktAttribute9')
+  SET @Preference10 = RequestParameter('mktAttribute10')
+  SET @Tactic_ID = RequestParameter('tacticid')
+  SET @Lead_Source = RequestParameter('Lead_Source')
+  SET @Message = RequestParameter('Message')
+  SET @Department = RequestParameter('Department')
+  SET @Level = RequestParameter('Level')
+  SET @Function = RequestParameter('Function')
+  SET @Lead_Source_Detail = RequestParameter('Lead_Source_Detail')
+  SET @marketingTheme = RequestParameter('marketingTheme')
+  SET @marketingCampaign = RequestParameter('marketingCampaign')
+  SET @marketingSubCampaign = RequestParameter('marketingSubCampaign')
+  SET @RFP_Attachments = RequestParameter('RFP_Attachments')
+  
+  IF EMPTY(@EmailAddress) THEN
+    RaiseError("Exception: Missing required parameters", true)
+  ENDIF
+  
+  SET @Full_Page_URL = RequestParameter('Full_Page_URL')
+
+  SET @Name = Concat(@FirstName,' ',@LastName)
+
+  SET @IsStatusupdate = "FALSE"
+
+  VAR @RedirectVar
+  IF (
+    (NOT EMPTY(@FirstName) AND Length(@FirstName) > 100) OR 
+    (NOT EMPTY(@LastName) AND Length(@LastName) > 100) OR 
+    (NOT EMPTY(@EmailAddress) AND Length(@EmailAddress) > 254) OR 
+    (NOT EMPTY(@Company) AND Length(@Company) > 250) OR 
+    (NOT EMPTY(@JobTitle) AND Length(@JobTitle) > 100) OR 
+    (NOT EMPTY(@Country) AND Length(@Country) > 50) OR
+    (NOT EMPTY(@Phone) AND Length(@Phone) > 50) OR
+    (NOT EMPTY(@CID) AND Length(@CID) > 100) OR
+    (NOT EMPTY(@medium) AND Length(@medium) > 100) OR
+    (NOT EMPTY(@MID) AND Length(@MID) > 100) OR
+    (NOT EMPTY(@term) AND Length(@term) > 100) OR
+    (NOT EMPTY(@Campaign) AND Length(@Campaign) > 100) OR
+    (NOT EMPTY(@Source) AND Length(@Source) > 100) OR
+    (NOT EMPTY(@content) AND Length(@content) > 100) OR
+    (NOT EMPTY(@db_annual_sales) AND Length(@db_annual_sales) > 50) OR
+    (NOT EMPTY(@db_city) AND Length(@db_city) > 50) OR
+    (NOT EMPTY(@db_company_name) AND Length(@db_company_name) > 100) OR
+    (NOT EMPTY(@db_country_name) AND Length(@db_country_name) > 50) OR
+    (NOT EMPTY(@db_employee_count) AND Length(@db_employee_count) > 50) OR
+    (NOT EMPTY(@db_industry) AND Length(@db_industry) > 50) OR
+    (NOT EMPTY(@db_primary_naics) AND Length(@db_primary_naics) > 50) OR
+    (NOT EMPTY(@db_primary_sic) AND Length(@db_primary_sic) > 50) OR
+    (NOT EMPTY(@db_state) AND Length(@db_state) > 50) OR 
+    (NOT EMPTY(@db_street_address) AND Length(@db_street_address) > 100) OR
+    (NOT EMPTY(@db_sub_industry) AND Length(@db_sub_industry) > 50) OR
+    (NOT EMPTY(@db_web_site) AND Length(@db_web_site) > 100) OR
+    (NOT EMPTY(@db_zip) AND Length(@db_zip) > 50) OR
+    (NOT EMPTY(@confirmationPage) AND Length(@confirmationPage) > 1000) OR 
+    (NOT EMPTY(@formName) AND Length(@formName) > 250) OR 
+    (NOT EMPTY(@pageURL) AND Length(@pageURL) > 4000) OR 
+    (NOT EMPTY(@conditionalProcessing) AND Length(@conditionalProcessing) > 250) OR
+    (NOT EMPTY(@Preference1) AND Length(@Preference1) > 100) OR
+    (NOT EMPTY(@Preference2) AND Length(@Preference2) > 100) OR
+    (NOT EMPTY(@Preference3) AND Length(@Preference3) > 100) OR
+    (NOT EMPTY(@Preference4) AND Length(@Preference4) > 100) OR
+    (NOT EMPTY(@Preference5) AND Length(@Preference5) > 100) OR
+    (NOT EMPTY(@Preference6) AND Length(@Preference6) > 100) OR
+    (NOT EMPTY(@Preference7) AND Length(@Preference7) > 100) OR
+    (NOT EMPTY(@Preference8) AND Length(@Preference8) > 100) OR
+    (NOT EMPTY(@Preference9) AND Length(@Preference9) > 100) OR
+    (NOT EMPTY(@Preference10) AND Length(@Preference10) > 100) OR
+    (NOT EMPTY(@Tactic_ID) AND Length(@Tactic_ID) > 50) OR
+    (NOT EMPTY(@Lead_Source) AND Length(@Lead_Source) > 50) OR
+    (NOT EMPTY(@Message) AND Length(@Message) > 4000) OR
+    (NOT EMPTY(@Function) AND Length(@Function) > 50) OR
+    (NOT EMPTY(@Level) AND Length(@Level) > 50) OR
+    (NOT EMPTY(@Department) AND Length(@Department) > 50) OR
+    (NOT EMPTY(@Lead_Source_Detail) AND Length(@Lead_Source_Detail) > 100) OR 
+    (NOT EMPTY(@marketingTheme) AND Length(@marketingTheme) > 256) OR 
+    (NOT EMPTY(@marketingCampaign) AND Length(@marketingCampaign) > 256) OR
+    (NOT EMPTY(@marketingSubCampaign) AND Length(@marketingSubCampaign) > 256) OR 
+    (NOT EMPTY(@Full_Page_URL) AND Length(@Full_Page_URL) > 4000) 
+  ) THEN
+    SET @RedirectVar = "TRUE"
+  ENDIF 
+]%%
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 1b - VALIDATE THE SUBMISSION  (same format as the Internal CFP pages, GSENHANCEM-13647)
+     ======================================================================================== */
+  try {
+    var Character_match = /[^0-9 a-z A-Z \' \~ \- \^ \# \_ \: \/ \( \) \| \. \, \&]/g;
+    var Message_Character_match = /[^0-9 a-z A-Z \' \~ \- \^ \# \_ \: \/ \( \) \| \! \? \. \, \&]/g;
+    var RedirectVar = Variable.GetValue("@RedirectVar");
+    var cfpLengthFailed = RedirectVar ? true : false;   /* set by the AMPscript length check in stage 1 */
+    var cfpCharFailed = false;
+    var cfpScriptFailed = false;
+    var FirstName = Variable.GetValue("@FirstName");
+    var LastName = Variable.GetValue("@LastName");
+    var Company = Variable.GetValue("@Company");
+    var JobTitle = Variable.GetValue("@JobTitle");
+    var Country = Variable.GetValue("@Country");
+    var Phone = Variable.GetValue("@Phone");
+    var CID = Variable.GetValue("@CID");
+    var Campaign = Variable.GetValue("@Campaign");
+    var Source = Variable.GetValue("@Source");
+    var content = Variable.GetValue("@content");
+    var db_annual_sales = Variable.GetValue("@db_annual_sales");
+    var db_city = Variable.GetValue("@db_city");
+    var db_company_name = Variable.GetValue("@db_company_name");
+    var db_country_name = Variable.GetValue("@db_country_name");
+    var db_employee_count = Variable.GetValue("@db_employee_count");
+    var db_industry = Variable.GetValue("@db_industry");
+    var db_primary_naics = Variable.GetValue("@db_primary_naics");
+    var db_primary_sic = Variable.GetValue("@db_primary_sic");
+    var db_state = Variable.GetValue("@db_state");
+    var db_street_address = Variable.GetValue("@db_street_address");
+    var db_zip = Variable.GetValue("@db_zip");
+    var confirmationPage = Variable.GetValue("@confirmationPage");
+    var formName = Variable.GetValue("@formName");
+    var pageURL = Variable.GetValue("@pageURL");
+    var conditionalProcessing = Variable.GetValue("@conditionalProcessing");
+    var Preference1 = Variable.GetValue("@Preference1");
+    var Preference2 = Variable.GetValue("@Preference2");
+    var Preference3 = Variable.GetValue("@Preference3");
+    var Preference4 = Variable.GetValue("@Preference4");
+    var Preference5 = Variable.GetValue("@Preference5");
+    var Preference6 = Variable.GetValue("@Preference6");
+    var Preference7 = Variable.GetValue("@Preference7");
+    var Preference8 = Variable.GetValue("@Preference8");
+    var Preference9 = Variable.GetValue("@Preference9");
+    var Preference10 = Variable.GetValue("@Preference10");
+    var Tactic_ID = Variable.GetValue("@Tactic_ID");
+    var Lead_Source = Variable.GetValue("@Lead_Source");
+    var Message = Variable.GetValue("@Message");
+    var Function = Variable.GetValue("@Function");
+    var Level = Variable.GetValue("@Level");
+    var Department = Variable.GetValue("@Department");
+    var Lead_Source_Detail = Variable.GetValue("@Lead_Source_Detail");
+    var marketingTheme = Variable.GetValue("@marketingTheme");
+    var marketingCampaign = Variable.GetValue("@marketingCampaign");
+    var marketingSubCampaign = Variable.GetValue("@marketingSubCampaign");
+
+    var FirstName_Match = FirstName.match(Character_match);
+    var LastName_Match = LastName.match(Character_match);
+    var Company_Match = Company.match(Character_match);
+    var JobTitle_Match = JobTitle.match(Character_match);
+    var Country_Match = Country.match(Character_match);
+    var Phone_Match = Phone.match(Character_match);
+    var CID_Match = CID.match(Character_match);
+    var Campaign_Match = Campaign.match(Character_match);
+    var Source_Match = Source.match(Character_match);
+    var content_Match = content.match(Character_match);
+    var db_annual_sales_Match = db_annual_sales.match(Character_match);
+    var db_city_Match = db_city.match(Character_match);
+    var db_company_name_Match = db_company_name.match(Character_match);
+    var db_country_name_Match = db_country_name.match(Character_match);
+    var db_employee_count_Match = db_employee_count.match(Character_match);
+    var db_industry_Match = db_industry.match(Character_match);
+    var db_primary_naics_Match = db_primary_naics.match(Character_match);
+    var db_primary_sic_Match = db_primary_sic.match(Character_match);
+    var db_state_Match = db_state.match(Character_match);
+    var db_street_address_Match = db_street_address.match(Character_match);
+    var db_zip_Match = db_zip.match(Character_match);
+    var conditionalProcessing_Match = conditionalProcessing.match(Character_match);
+    var Preference1_Match = Preference1.match(Character_match);
+    var Preference2_Match = Preference2.match(Character_match);
+    var Preference3_Match = Preference3.match(Character_match);
+    var Preference4_Match = Preference4.match(Character_match);
+    var Preference5_Match = Preference5.match(Character_match);
+    var Preference6_Match = Preference6.match(Character_match);
+    var Preference7_Match = Preference7.match(Character_match);
+    var Preference8_Match = Preference8.match(Character_match);
+    var Preference9_Match = Preference9.match(Character_match);
+    var Preference10_Match = Preference10.match(Character_match);
+    var Tactic_ID_Match = Tactic_ID.match(Character_match);
+    var Lead_Source_Match = Lead_Source.match(Character_match);
+    var Message_Match = Message.match(Message_Character_match);
+    var Function_Match = Function.match(Character_match);
+    var Level_Match = Level.match(Character_match);
+    var Department_Match = Department.match(Character_match);
+    var Lead_Source_Detail_Match = Lead_Source_Detail.match(Character_match);
+    var marketingTheme_Match = marketingTheme.match(Character_match);
+    var marketingCampaign_Match = marketingCampaign.match(Character_match);
+    var marketingSubCampaign_Match = marketingSubCampaign.match(Character_match);
+    //var confirmationPage_Match = confirmationPage.match(Character_match);
+    var formName_Match = formName.match(Character_match);
+    var Full_Page_URL = Variable.GetValue("@Full_Page_URL");
+    //var pageURL_Match = pageURL.match(Character_match);//
+
+
+    if (
+        FirstName_Match.length > 0 || 
+        LastName_Match.length > 0 || 
+        Company_Match.length > 0 || 
+        JobTitle_Match.length > 0 || 
+        Country_Match.length > 0 || 
+        Phone_Match.length > 0 || 
+        CID_Match.length > 0 || 
+        Campaign_Match.length > 0 || 
+        Source_Match.length > 0 || 
+        content_Match.length > 0 || 
+        db_annual_sales_Match.length > 0 || 
+        db_city_Match.length > 0 || 
+        db_company_name_Match.length > 0 || 
+        db_country_name_Match.length > 0 || 
+        db_employee_count_Match.length > 0 || 
+        db_industry_Match.length > 0 || 
+        db_primary_naics_Match.length > 0 || 
+        db_primary_sic_Match.length > 0 || 
+        db_state_Match.length > 0 || 
+        db_street_address_Match.length > 0 || 
+        db_zip_Match.length > 0 || 
+        conditionalProcessing_Match.length > 0 || 
+        Preference1_Match.length > 0 || 
+        Preference2_Match.length > 0 || 
+        Preference3_Match.length > 0 || 
+        Preference4_Match.length > 0 || 
+        Preference5_Match.length > 0 || 
+        Preference6_Match.length > 0 || 
+        Preference7_Match.length > 0 || 
+        Preference8_Match.length > 0 || 
+        Preference9_Match.length > 0 || 
+        Preference10_Match.length > 0 || 
+        Tactic_ID_Match.length > 0 || 
+        Lead_Source_Match.length > 0 || 
+        Message_Match.length > 0 || 
+        Function_Match.length > 0 || 
+        Level_Match.length > 0 || 
+        Department_Match.length > 0 || 
+        Lead_Source_Detail_Match.length > 0 || 
+        marketingTheme_Match.length > 0 || 
+        marketingCampaign_Match.length > 0 || 
+        marketingSubCampaign_Match.length > 0 || 
+        formName_Match.length > 0
+      ) {
+      RedirectVar = true;
+      cfpCharFailed = true;
+    }
+
+    if (pageURL) {
+      if (pageURL.indexOf('alert(') > -1) {
+        RedirectVar = true;
+        cfpScriptFailed = true;
+      }
+    }
+    if (confirmationPage) {
+      if (confirmationPage.indexOf('alert(') > -1) {
+        RedirectVar = true;
+        cfpScriptFailed = true;
+      }
+    }
+    if (Full_Page_URL) {
+      if (Full_Page_URL.indexOf('alert(') > -1) {
+        RedirectVar = true;
+        cfpScriptFailed = true;
+      }
+    }
+    if (RedirectVar) {
+      throw "Error";
+    }    
+    if (RedirectVar) {
+      throw "Error";
+    }
+  } catch(error) {
+    var cfpWhy = "";
+    if (error === "Error") {
+      if (cfpLengthFailed) { cfpWhy += " a value is longer than its allowed length;"; }
+      if (cfpCharFailed) { cfpWhy += " a value contains characters that are not allowed;"; }
+      if (cfpScriptFailed) { cfpWhy += " a URL value contains a script pattern;"; }
+      cfpWhy = "Submission rejected:" + cfpWhy;
+    } else {
+      cfpWhy = "Validation routine failed: " + CFP_ErrText(error);
+    }
+    CFP_LogError("INPUT_VALIDATION", cfpWhy, "ERROR", 400);
+    CFP_ErrorResponse(400, "INPUT_VALIDATION");
+  }
+</script>
+
+<script runat="server">
+  try {
+    var emailAddress = Variable.GetValue("@EmailAddress");
+    if (!IsEmailAddress(emailAddress)) {
+      throw "Error";
+    }
+  } catch(error) {
+    CFP_LogError("EMAIL_VALIDATION", "EmailAddress is missing or not a valid email address", "ERROR", 400);
+    CFP_ErrorResponse(400, "EMAIL_VALIDATION");
+  }
+</script>
+
+%%[
+  /* Default values (unchanged from the previous version) */
+  IF EMPTY(@RFP_Attachments) OR (@RFP_Attachments != "True") THEN
+    SET @RFP_Attachments = "False"
+  ENDIF
+  IF EMPTY(@db_annual_sales) THEN
+    SET @db_annual_sales = "0"
+  ENDIF
+  IF EMPTY(@db_employee_count) THEN
+    SET @db_employee_count = "0"
+  ENDIF
+]%%
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 1c - STAGING RECORD
+     ======================================================================================== */
+  try {
+</script>
+%%[
+    SET @insert = InsertDE("NoSFID_CentralizedFormProcessor",
+      "FirstName", @FirstName,
+      "LastName", @LastName,
+      "EmailAddress", @EmailAddress,
+      "Company", @Company,
+      "JobTitle", @Jobtitle,
+      "Country", @Country,
+      "Phone", @Phone,
+      "CID", @CID,
+      "medium", @medium,
+      "MID", @MID,
+      "term", @term,
+      "Campaign", @Campaign,
+      "Source", @Source,
+      "content", @content,
+      "db_annual_sales", @db_annual_sales,
+      "db_city", @db_city,
+      "db_company_name", @db_company_name,
+      "db_country_name", @db_country_name,
+      "db_employee_count", @db_employee_count,
+      "db_industry", @db_industry,
+      "db_primary_naics", @db_primary_naics,
+      "db_primary_sic", @db_primary_sic,
+      "db_state", @db_state,
+      "db_street_address", @db_street_address,
+      "db_sub_industry", @db_sub_industry,
+      "db_web_site", @db_web_site,
+      "db_zip", @db_zip,
+      "confirmationPage", @confirmationPage,
+      "formName", @formName,
+      "pageURL", @pageURL,
+      "conditionalProcessing", @conditionalProcessing,
+      "Preference1", @Preference1,
+      "Preference2", @Preference2,
+      "Preference3", @Preference3,
+      "Preference4", @Preference4,
+      "Preference5", @Preference5,
+      "Preference6", @Preference6,
+      "Preference7", @Preference7,
+      "Preference8", @Preference8,
+      "Preference9", @Preference9,
+      "Preference10", @Preference10,
+      "Tactic_ID", @Tactic_ID,
+      "Department", @Department,
+      "Level", @Level,
+      "Function", @Function,
+      "Lead_Source", @Lead_Source,
+      "Lead_Source_Detail", @Lead_Source_Detail,
+      "Message", @Message,
+      "marketingTheme", @marketingTheme,
+      "marketingCampaign", @marketingCampaign,
+      "marketingSubCampaign", @marketingSubCampaign,
+      "PrimaryKey", @PrimaryKey,
+      "CFP_PK", @guid
+    )
+]%%
+<script runat="server">
+  } catch (eStage) {
+    CFP_Fail("STAGING_INSERT", eStage);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 2 - SALESFORCE: FIND THE LEAD / CONTACT, OR CREATE A LEAD   (GEE-72810 Scenarios 3, 4, 5)
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  VAR @CPE_Rows, @CPE_RowCount, @CPE_Row_Seen, @cpeSFID, @k
+  VAR @FB_Rows, @FB_RowCount, @FB2_Rows, @FB2_ParentId, @FB2_Contact, @FB2_Lead
+  VAR @Resolved_ID, @Resolved_From, @ProcessLead, @NeedCreate
+  VAR @Salesforce_ID, @LeadId, @NewLeadCreated, @updateRecord
+
+  /* @Resolved_ID   = the Lead/Contact Id found by lookups 2.1 - 2.3 (empty = nothing found yet)
+     @Resolved_From = which step found it (PRIMARY, FALLBACK_SYNC_DE, FALLBACK_INDIVIDUAL_...) - for the log
+     @CPE_Row_Seen  = "True" when a ContactPointEmail row was seen for the email (even without an Id)
+     @NeedCreate    = "True" when a new Lead has to be created
+     @NewLeadCreated= "True" when this submission created a Lead (then the wait after this stage applies)
+     @Salesforce_ID = the final Id used by ALL later stages */
+  SET @Resolved_ID    = ""
+  SET @Resolved_From  = ""
+  SET @CPE_Row_Seen   = "False"
+  SET @NeedCreate     = "False"
+  SET @NewLeadCreated = "False"
+  SET @Salesforce_ID  = ""
+  SET @LeadId         = ""
+
+  /* Lead processing (create / update) applies only to these Function values. This is the same rule as the
+     previous page, where two identical branches handled "Other/Not Sure or empty" and "Advisory/Tax/Audit".
+     For any other Function value no Lead is created or updated (unchanged behaviour). */
+  IF EMPTY(@Function) OR @Function == "Other/Not Sure" OR @Function == "Advisory" OR @Function == "Tax" OR @Function == "Audit" THEN
+    SET @ProcessLead = "True"
+  ELSE
+    SET @ProcessLead = "False"
+  ENDIF
+
+  /* ---------- 2.1 PRIMARY LOOKUP (live Salesforce query) ----------
+     Several rows can exist for one email; the first row that has a Lead/Contact Id is used. */
+  SET @CPE_Rows = RetrieveSalesforceObjects("ContactPointEmail", "KPMG_Lead_Contact_Id__c", "EmailAddress", "=", @EmailAddress)
+  SET @CPE_RowCount = RowCount(@CPE_Rows)
+  IF @CPE_RowCount > 0 THEN
+    SET @CPE_Row_Seen = "True"
+    FOR @k = 1 TO @CPE_RowCount DO
+      SET @cpeSFID = Field(Row(@CPE_Rows, @k), "KPMG_Lead_Contact_Id__c")
+      IF EMPTY(@Resolved_ID) AND NOT EMPTY(@cpeSFID) THEN
+        SET @Resolved_ID   = @cpeSFID
+        SET @Resolved_From = "PRIMARY"
+      ENDIF
+    NEXT @k
+  ENDIF
+]%%
+
+<script runat="server">
+  /* ---------- 2.2 FB-1: synchronized Data Extension of ContactPointEmail ---------- */
+  try {
+</script>
+%%[
+  IF EMPTY(@Resolved_ID) AND @ProcessLead == "True" THEN
+    SET @FB_Rows = LookupRows(@CPE_Sync_DE, "EmailAddress", @EmailAddress)
+    SET @FB_RowCount = RowCount(@FB_Rows)
+    IF @FB_RowCount > 0 THEN
+      SET @CPE_Row_Seen = "True"
+      FOR @k = 1 TO @FB_RowCount DO
+        SET @cpeSFID = Field(Row(@FB_Rows, @k), "KPMG_Lead_Contact_Id__c")
+        IF EMPTY(@Resolved_ID) AND NOT EMPTY(@cpeSFID) THEN
+          SET @Resolved_ID   = @cpeSFID
+          SET @Resolved_From = "FALLBACK_SYNC_DE"
+        ENDIF
+      NEXT @k
+    ENDIF
+  ENDIF
+]%%
+<script runat="server">
+  } catch (eFB1) {
+    CFP_LogError("FALLBACK_SYNC_DE_LOOKUP_FAILED", eFB1, "ERROR_NONFATAL");
+  }
+</script>
+
+<script runat="server">
+  /* ---------- 2.3 FB-2: associated Lead / Contact through the Individual ---------- */
+  try {
+</script>
+%%[
+  IF EMPTY(@Resolved_ID) AND @ProcessLead == "True" AND @CPE_Row_Seen == "True" THEN
+    SET @FB2_Rows = RetrieveSalesforceObjects("ContactPointEmail", "Id,ParentId", "EmailAddress", "=", @EmailAddress)
+    IF RowCount(@FB2_Rows) > 0 THEN
+      SET @FB2_ParentId = Field(Row(@FB2_Rows, 1), "ParentId")
+      IF NOT EMPTY(@FB2_ParentId) THEN
+        SET @FB2_Contact = RetrieveSalesforceObjects("Contact", "Id", "IndividualId", "=", @FB2_ParentId)
+        IF RowCount(@FB2_Contact) > 0 THEN
+          SET @Resolved_ID   = Field(Row(@FB2_Contact, 1), "Id")
+          SET @Resolved_From = "FALLBACK_INDIVIDUAL_CONTACT"
+        ELSE
+          SET @FB2_Lead = RetrieveSalesforceObjects("Lead", "Id", "IndividualId", "=", @FB2_ParentId)
+          IF RowCount(@FB2_Lead) > 0 THEN
+            SET @Resolved_ID   = Field(Row(@FB2_Lead, 1), "Id")
+            SET @Resolved_From = "FALLBACK_INDIVIDUAL_LEAD"
+          ENDIF
+        ENDIF
+      ENDIF
+    ENDIF
+  ENDIF
+]%%
+<script runat="server">
+  } catch (eFB2) {
+    CFP_LogError("FALLBACK_INDIVIDUAL_LOOKUP_FAILED", eFB2, "ERROR_NONFATAL");
+  }
+</script>
+
+%%[
+  /* ---------- 2.4 CREATE A NEW LEAD ---------- */
+  IF @ProcessLead == "True" AND EMPTY(@Resolved_ID) THEN
+    SET @NeedCreate = "True"
+    SET @LeadId = CreateSalesforceObject("Lead", 20,
+      "FirstName", @FirstName,
+      "LastName", @LastName,
+      "Email", @EmailAddress,
+      "Company", @Company,
+      "Title", @JobTitle,
+      "Phone", @Phone,
+      "KPMG_Level__c", @Level,
+      "KPMG_Department__c", @Department,
+      "Street", @db_street_address,
+      "City", @db_city,
+      "State", @db_state,
+      "PostalCode", @db_zip,
+      "Country", @Country,
+      "KPMG_Lead_Industry__c", @db_industry,
+      "NumberOfEmployees", @db_employee_count,
+      "Website", @db_web_site,
+      "AnnualRevenue", @db_annual_sales,
+      "KPMG_Function__c", @Function,
+      "KPMG_Lead_Source_Detail__c", @Lead_Source_Detail,
+      "LeadSource", 2)
+
+    /* A Salesforce Id has 15 or 18 characters. Anything shorter means the create did not really succeed
+       (an empty or 0 answer is a known silent-failure pattern) and is treated as a failure in the SSJS
+       check right after this block. */
+    IF NOT EMPTY(@LeadId) AND Length(@LeadId) >= 15 THEN
+      SET @Resolved_ID    = @LeadId
+      SET @Resolved_From  = "CREATED"
+      SET @NewLeadCreated = "True"
+      SET @IsStatusupdate = "True"    /* a new Lead must be set to Opt In in stage 4 */
+    ENDIF
+  ENDIF
+]%%
+<script runat="server">
+  /* A create was attempted but did not return a valid Lead Id -> fail with a clear message */
+  if (Variable.GetValue("@NeedCreate") == "True" && !Variable.GetValue("@Resolved_ID")) {
+    throw "Lead creation did not return a valid Salesforce Id (returned: [" + Variable.GetValue("@LeadId") + "])";
+  }
+</script>
+
+%%[
+  /* ---------- 2.5 UPDATE THE EXISTING RECORD, then publish the Salesforce Id ---------- */
+  IF @ProcessLead == "True" AND NOT EMPTY(@Resolved_ID) THEN
+    SET @Salesforce_ID = @Resolved_ID
+
+    /* A Lead created a moment ago already carries the submitted values, so only EXISTING records are updated. */
+    IF @Resolved_From != "CREATED" THEN
+      /* Contact (Id starts with 003): NOT updated - GEE-5976, unchanged.
+         Lead: the same 10 attributes as before. Name, title, phone, country, function etc. are NOT updated. */
+      IF Substring(@Resolved_ID,1,3) != "003" THEN
+        SET @updateRecord = UpdateSingleSalesforceObject("Lead", @Resolved_ID,
+          "KPMG_Level__c", @Level,
+          "KPMG_Department__c", @Department,
+          "Street", @db_street_address,
+          "City", @db_city,
+          "State", @db_state,
+          "PostalCode", @db_zip,
+          "KPMG_Lead_Industry__c", @db_industry,
+          "NumberOfEmployees", @db_employee_count,
+          "Website", @db_web_site,
+          "AnnualRevenue", @db_annual_sales)
+      ENDIF
+    ENDIF
+  ENDIF
+]%%
+
+<script runat="server">
+  /* Wait for Salesforce to finish building a NEW Lead (Lead + IFD + ContactPointEmail are created together). */
+  if (CFP_ALWAYS_WAIT || Variable.GetValue("@NewLeadCreated") == "True") {
+    CFP_Sleep(CFP_CREATE_WAIT_MS);
+  }
+  } catch (eSF) {
+    /* end of the stage 2 try { - any Salesforce failure above ends up here */
+    CFP_Fail("SF_INTEGRATION", eSF);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 3 - PROMOTE THE STAGING RECORD to Centralized_Form_Processor_DE
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  IF NOT EMPTY(@Salesforce_ID) THEN
+      SET @InsertCFP = InsertData("Centralized_Form_Processor_DE",
+        "FirstName", @FirstName,
+        "LastName", @LastName,
+        "EmailAddress", @EmailAddress,
+        "Company", @Company,
+        "JobTitle", @Jobtitle,
+        "Country", @Country,
+        "Phone", @Phone,
+        "CID", @CID,
+        "medium", @medium,
+        "MID", @MID,
+        "term", @term,
+        "Campaign", @Campaign,
+        "Source", @Source,
+        "content", @content,
+        "db_annual_sales", @db_annual_sales,
+        "db_city", @db_city,
+        "db_company_name", @db_company_name,
+        "db_country_name", @db_country_name,
+        "db_employee_count", @db_employee_count,
+        "db_industry", @db_industry,
+        "db_primary_naics", @db_primary_naics,
+        "db_primary_sic", @db_primary_sic,
+        "db_state", @db_state,
+        "db_street_address", @db_street_address,
+        "db_sub_industry", @db_sub_industry,
+        "db_web_site", @db_web_site,
+        "db_zip", @db_zip,
+        "confirmationPage", @confirmationPage,
+        "formName", @formName,
+        "pageURL", @pageURL,
+        "conditionalProcessing", @conditionalProcessing,
+        "Preference1", @Preference1,
+        "Preference2", @Preference2,
+        "Preference3", @Preference3,
+        "Preference4", @Preference4,
+        "Preference5", @Preference5,
+        "Preference6", @Preference6,
+        "Preference7", @Preference7,
+        "Preference8", @Preference8,
+        "Preference9", @Preference9,
+        "Preference10", @Preference10,
+        "Tactic_ID", @Tactic_ID,
+        "Department", @Department,
+        "Level", @Level,
+        "Function", @Function,
+        "Lead_Source", @Lead_Source,
+        "Lead_Source_Detail", @Lead_Source_Detail,
+        "Message", @Message,
+        "RFP_Attachments", @RFP_Attachments,
+        "marketingTheme", @marketingTheme,
+        "marketingCampaign", @marketingCampaign,
+        "marketingSubCampaign", @marketingSubCampaign,
+        "PrimaryKey", @PrimaryKey,
+        "Full_Page_URL", @Full_Page_URL,
+        "CFP_PK", @guid,
+        "Salesforce_ID", @Salesforce_ID
+      )
+    /* Confirm the insert two ways: its return value (1 = one row inserted) or by finding the row */
+    SET @PromotedPK = Lookup("Centralized_Form_Processor_DE", "CFP_PK", "CFP_PK", @guid)
+    IF @InsertCFP == 1 OR NOT EMPTY(@PromotedPK) THEN
+      SET @deleteCount = DeleteData("NoSFID_CentralizedFormProcessor", "CFP_PK", @guid)
+    ENDIF
+  ENDIF
+]%%
+<script runat="server">
+  } catch (ePromo) {
+    CFP_Fail("DATA_PROMOTION", ePromo);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 4 - CONSENT STATUS UPDATE
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  VAR @ConsentStatusVal, @IFD_Rows, @Consent_SFID
+
+  /* A person who submits a form again is subscribing again: remove them from the unsubscribe-all list */
+  SET @deleteCount = DeleteData("Unsubscribe_From_All_Preferences", "EmailAddress", @EmailAddress)
+
+  /* Which Id to use: normally the one from stage 2. If the Function was not eligible (@Salesforce_ID empty)
+     but the person was found by the lookup, the found Id is still used for the consent update (as before). */
+  IF NOT EMPTY(@Salesforce_ID) THEN
+    SET @Consent_SFID = @Salesforce_ID
+  ELSE
+    SET @Consent_SFID = @Resolved_ID
+  ENDIF
+
+  IF NOT EMPTY(@Consent_SFID) THEN
+    IF Substring(@Consent_SFID,1,3) == "003" THEN
+      /* ----- the person is a CONTACT: the IFD record points to the Contact ----- */
+      SET @IFD_Rows = RetrieveSalesforceObjects("KPMG_Individual_Firm_Details__c", "id,KPMG_Consent_Status__c", "KPMG_ContactId__c", "=", @Consent_SFID)
+      IF RowCount(@IFD_Rows) > 0 THEN
+        SET @ConsentStatusVal = Field(Row(@IFD_Rows, 1), "KPMG_Consent_Status__c")
+        IF @ConsentStatusVal == "Opt out" OR @ConsentStatusVal == "Opt Out" OR @ConsentStatusVal == "Opt In Pending" OR @IsStatusupdate == "True" THEN
+          SET @IsStatusupdate = "True"
+          SET @updateRecord = UpdateSingleSalesforceObject("KPMG_Individual_Firm_Details__c", Field(Row(@IFD_Rows, 1), "id"), "KPMG_Consent_Status__c", "Opt In")
+          SET @deleteCount = DeleteData("Unsubscribe_From_All_Preferences", "EmailAddress", @EmailAddress)
+        ENDIF
+      ENDIF
+    ELSE
+      /* ----- the person is a LEAD: the IFD record points to the Lead ----- */
+      SET @IFD_Rows = RetrieveSalesforceObjects("KPMG_Individual_Firm_Details__c", "id,KPMG_Consent_Status__c", "KPMG_LeadId__c", "=", @Consent_SFID)
+      IF RowCount(@IFD_Rows) > 0 THEN
+        SET @ConsentStatusVal = Field(Row(@IFD_Rows, 1), "KPMG_Consent_Status__c")
+        IF @ConsentStatusVal == "Opt out" OR @ConsentStatusVal == "Opt Out" OR @ConsentStatusVal == "Opt In Pending" OR @IsStatusupdate == "True" THEN
+          SET @IsStatusupdate = "True"
+          SET @updateRecord = UpdateSingleSalesforceObject("KPMG_Individual_Firm_Details__c", Field(Row(@IFD_Rows, 1), "id"), "KPMG_Consent_Status__c", "Opt In")
+        ENDIF
+      ENDIF
+    ENDIF
+  ENDIF
+]%%
+<script runat="server">
+  } catch (eConsent) {
+    CFP_Fail("CONSENT_UPDATE", eConsent);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 4.2 - AUTO SUPPRESSION LIST UPDATE
+     ======================================================================================== */
+  try {
+    Platform.Function.DeleteData("Global_Suppression_List", ["Email Address"], [CFP_Get("EmailAddress")]);
+  } catch (eSupp) {
+    CFP_LogError("SUPPRESSION_LIST_UPDATE", eSupp, "ERROR_NONFATAL");
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 5 - ASSOCIATED EMAIL ADDRESSES
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  IF @IsStatusupdate == "True" AND NOT EMPTY(@Consent_SFID) THEN
+    /* all addresses of the same Lead/Contact except the one just submitted */
+    SET @AssociatedEmailAddressList = RetrieveSalesforceObjects("ContactPointEmail", "EmailAddress", "KPMG_Lead_Contact_Id__c", "=", @Consent_SFID, "EmailAddress", "!=", @EmailAddress)
+
+    IF RowCount(@AssociatedEmailAddressList) > 0 THEN
+      FOR @counter = 1 TO RowCount(@AssociatedEmailAddressList) DO
+        SET @AssociatedEmail = Field(Row(@AssociatedEmailAddressList, @counter), "EmailAddress")
+        SET @deleteCount1 = DeleteData("Unsubscribe_From_All_Preferences", "EmailAddress", @AssociatedEmail)
+        SET @deleteCount2 = DeleteData("Unsubscriber_Preferences_Email", "EmailAddress", @AssociatedEmail)
+
+        /* START GSENHANCEM-16408: make the associated address an Active subscriber again */
+        SET @assocSub = CreateObject("Subscriber")
+        SetObjectProperty(@assocSub, "Status", "Active")
+        SetObjectProperty(@assocSub, "SubscriberKey", @AssociatedEmail)
+        SET @assocStatus = InvokeUpdate(@assocSub)
+        /* END GSENHANCEM-16408 */
+
+        /* audit trail of the re-subscription */
+        SET @insert3 = InsertDE("Audit_Preferences", "Salesforce_ID", @Consent_SFID, "EmailAddress", @AssociatedEmail, "Date", Now(), "Initiated_By", @Name, "Activity", "Subscribed", "Enrollment_Type", "Self-Enrolled", "Source", "External Centralized Form Processor")
+      NEXT @counter
+    ENDIF
+  ENDIF
+]%%
+<script runat="server">
+  } catch (eAssoc) {
+    CFP_Fail("ASSOCIATED_EMAILS", eAssoc);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 6 - SALESFORCE NAME + PREFERENCES (GEE-33224)
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  IF Substring(@Salesforce_ID,1,3) == "003" THEN
+    SET @UpdateSFName = RetrieveSalesforceObjects('Contact', 'FirstName, LastName', 'Id', '=', @Salesforce_ID)
+    SET @rc = RowCount(@UpdateSFName)
+ 
+    IF @rc > 0 THEN
+      SET @row = Row(@UpdateSFName,1)
+      SET @SC_First_Name = Field(@row, 'FirstName')
+      SET @SC_Last_Name = Field(@row, 'LastName')
+    ENDIF 
+  ELSE
+    SET @UpdateSFName = RetrieveSalesforceObjects('Lead', 'FirstName, LastName', 'Id', '=', @Salesforce_ID)
+    SET @rc = RowCount(@UpdateSFName)
+ 
+    IF @rc > 0 THEN
+      SET @row = Row(@UpdateSFName,1)
+      SET @SC_First_Name = Field(@row, 'FirstName')
+      SET @SC_Last_Name = Field(@row, 'LastName')
+    ENDIF
+  ENDIF
+
+  SET @SC_Full_Name = Concat(@SC_First_Name, ' ', @SC_Last_Name)
+
+  /* Check Preference Atrributes 1-10 */
+  FOR @i=1 TO 10 DO
+    SET @rowset = BuildRowsetFromString(treatascontent(Concat('%','%=v(@Preference',@i,')=%','%')),'|')
+    IF RowCount(@rowset) > 0 THEN
+      FOR @i1 = 1 TO RowCount(@rowset) DO
+
+        SET @row = Row(@rowset, @i1)
+        SET @Preference_ID = Field(@row,1)
+
+        /* Key for lookup */
+        SET @Preference_Enrollment_Key = Concat(@EmailAddress, '|', @Preference_ID)
+        SET @prefRow = LookupRows("Subscriber_Preferences_Email", "Preference_Enrollment", @Preference_Enrollment_Key)
+        SET @Is_Preference_exist = RowCount(@prefRow)
+        /* Start of GEE-33224 */
+        SET @nowDT = Now()
+        SET @Source_External = "External Centralized Form Processor"
+
+        /* ===================================================================
+           SCENARIO 1: NEW ENROLLMENT (NO EXISTING ROW)
+           - Insert new row
+           - Set Date (original), and LastModifiedDate = now
+           =================================================================== */
+
+        IF @Is_Preference_exist == 0 THEN
+          SET @insertPref = InsertDE(
+            "Subscriber_Preferences_Email",
+            "Salesforce_ID", @Salesforce_ID,
+            "EmailAddress", @EmailAddress,
+            "Preference_ID", @Preference_ID,
+            "Enrollment_Type", "Self-Enrolled",
+            "Date", @nowDT,                      /* ORIGINAL enrollment date */
+            "LastModifiedDate", @nowDT,          /* NEW field — set to now on insert */
+            "Preference_Enrollment", @Preference_Enrollment_Key,
+            "Initiated_By", @SC_Full_Name,
+            "Source", @Source_External
+          )
+          /* Remove if previously unsubscribed */
+          SET @Pref_unenrolled = Concat(@EmailAddress, '|', @Preference_ID)
+          SET @unsubscribed_pref = Lookup("Unsubscriber_Preferences_Email", "EmailAddress", "Preference_Unenrollment", @Pref_unenrolled)
+          IF NOT EMPTY(@unsubscribed_pref) THEN
+            SET @deleteUnsub = DeleteData("Unsubscriber_Preferences_Email", "Preference_Unenrollment", @Pref_unenrolled)
+          ENDIF
+
+        ELSE
+          /* Existing Record Found - preserve Date & ConfirmedEnrollmentDate, only update LastModifiedDate and the metadata required */
+          SET @pref = Row(@prefRow, 1)
+          SET @currentType = Field(@pref, "Enrollment_Type")
+          SET @currentSource = Field(@pref, "Source")
+
+          /* ===================================================================
+             SCENARIO 2:
+             EXISTING PREFERENCE → CURRENTLY NOT SELF-ENROLLED
+             → CHANGE TO SELF-ENROLLED + UPDATE LastModifiedDate
+             (Do NOT modify Date or ConfirmedEnrollmentDate)
+             =================================================================== */
+
+          IF @currentType != "Self-Enrolled" THEN
+            SET @updatePref = UpdateDE(
+              "Subscriber_Preferences_Email", 1,
+              "Preference_Enrollment", @Preference_Enrollment_Key,
+              "Salesforce_ID", @Salesforce_ID,
+              "Enrollment_Type", "Self-Enrolled",
+              "Initiated_By", @SC_Full_Name,
+              "Source", @Source_External,            /* update source */
+              "LastModifiedDate", @nowDT             /* NEW requirement: always update LastModifiedDate */
+            )
+
+          /* ===================================================================
+             SCENARIO 3:
+             EXISTING + SELF-ENROLLED BUT SOURCE ≠ EXTERNAL CFP
+             → UPDATE SOURCE + LastModifiedDate
+             (Do NOT modify Date or ConfirmedEnrollmentDate)
+             =================================================================== */
+          ELSEIF @currentType == "Self-Enrolled" AND @currentSource != @Source_External THEN
+            SET @updatePref = UpdateDE(
+              "Subscriber_Preferences_Email", 1,
+              "Preference_Enrollment", @Preference_Enrollment_Key,
+              "Salesforce_ID", @Salesforce_ID,
+              "Source", @Source_External,
+              "Initiated_By", @SC_Full_Name,
+              "LastModifiedDate", @nowDT
+            )
+
+          /* ===================================================================
+             SCENARIO 4:
+             EXISTING + SELF-ENROLLED + SOURCE = EXTERNAL CFP
+             → ONLY UPDATE LastModifiedDate
+             (Do NOT modify Date or ConfirmedEnrollmentDate)
+             =================================================================== */
+
+          ELSEIF @currentType == "Self-Enrolled" AND @currentSource == @Source_External THEN
+            SET @updatePref = UpdateDE(
+              "Subscriber_Preferences_Email", 1,
+              "Preference_Enrollment", @Preference_Enrollment_Key,
+              "Salesforce_ID", @Salesforce_ID,
+              "LastModifiedDate", @nowDT,
+              "Initiated_By", @SC_Full_Name
+            )
+
+          ENDIF
+        ENDIF
+
+        /* ----------------------------------------------------
+           AUDIT ALWAYS INSERTED — ALL 4 SCENARIOS
+           ---------------------------------------------------- */
+
+        SET @insertAudit = InsertDE(
+          "Audit_Preferences",
+          "Salesforce_ID", @Salesforce_ID,
+          "EmailAddress", @EmailAddress,
+          "Preference_ID", @Preference_ID,
+          "Date", @nowDT,
+          "Initiated_By", @SC_Full_Name,
+          "Activity", "Subscribed",
+          "Enrollment_Type", "Self-Enrolled",
+          "Source", @Source_External
+        )
+
+      /* End of GEE-33224 */
+
+      NEXT @i1
+    ENDIF
+  NEXT @i
+]%%
+<script runat="server">
+  } catch (ePref) {
+    CFP_Fail("PREFERENCE_PROCESSING", ePref);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 7 - SUBSCRIBER ACTIVATION (GSENHANCEM-12892) AND API CREDENTIALS
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  /* GSENHANCEM-12892-Start*/
+  /* Start- Updating allsubs status to unsubscribe using email as subscriberkey */
+  VAR @SubsKey1, @mysub1, @SubsKey2, @mysub2
+  SET @SubsKey1 = @EmailAddress 
+  SET @mysub1 = CreateObject("Subscriber")
+  SetObjectProperty(@mysub1, "Status", "Active")
+  SetObjectProperty(@mysub1, "SubscriberKey", @SubsKey1)
+  SET @statusCode1 = InvokeUpdate(@mysub1)
+
+  /*Start- Updating allsubs status to unsubscribe using SalesforceID as subscriberkey */ 
+  SET @SubsKey2 = @Salesforce_ID
+  SET @mysub2 = CreateObject("Subscriber")
+  SetObjectProperty(@mysub2, "Status", "Active")
+  SetObjectProperty(@mysub2, "SubscriberKey", @SubsKey2)
+  SET @statusCode2 = InvokeUpdate(@mysub2)
+  /* GSENHANCEM-12892-end*/
+
+  SET @PK_Email = Concat(@EmailAddress, "|", Now())
+  SET @Client_ID_ENC = Lookup('ENT.API_Details', 'Encrypted Client Id', 'API Name', 'KPMGUS_DEFAULT_API')
+  SET @Client_Secret_ENC = Lookup('ENT.API_Details', 'Encrypted Client Secret', 'API Name', 'KPMGUS_DEFAULT_API')
+  SET @Authentication_Base_URI_ENC = Lookup('ENT.API_Details', 'Encrypted Authentication Base URI', 'API Name', 'KPMGUS_DEFAULT_API')
+  SET @Client_ID_DEC = DecryptSymmetric(
+    @Client_ID_ENC,
+    "AES",
+    @null,
+    "password",
+    @null,
+    "0000000000000000",
+    @null,
+    "00000000000000000000000000000000"
+  )
+  SET @Client_Secret_DEC = DecryptSymmetric(
+    @Client_Secret_ENC,
+    "AES",
+    @null,
+    "password",
+    @null,
+    "0000000000000000",
+    @null,
+    "00000000000000000000000000000000"
+  )
+  SET @Authentication_Base_URI_DEC = DecryptSymmetric(
+    @Authentication_Base_URI_ENC,
+    "AES",
+    @null,
+    "password",
+    @null,
+    "0000000000000000",
+    @null,
+    "00000000000000000000000000000000"
+  )
+  SET @MID_Value = AuthenticatedMemberID()
+]%%
+<script runat="server">
+  } catch (eSubs) {
+    CFP_Fail("SUBSCRIBER_ACTIVATION_OR_API_CREDENTIALS", eSubs);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 8 - JOURNEY BUILDER
+     ======================================================================================== */
+  var jContentType = "application/json";
+
+  /* The data sent with every journey entry (all form fields, same list as the Internal CFP page except
+     Inquiry_Type, which does not exist on the External page). */
+  function CFP_BuildJourneyData() {
+    var cols = ["FirstName","LastName","Company","JobTitle","Country","Phone","CID","medium","MID","term",
+                "Campaign","Source","content","db_annual_sales","db_city","db_company_name","db_country_name",
+                "db_employee_count","db_industry","db_primary_naics","db_primary_sic","db_state",
+                "db_street_address","db_sub_industry","db_web_site","db_zip","confirmationPage","formName",
+                "pageURL","Full_Page_URL","conditionalProcessing","Preference1","Preference2","Preference3",
+                "Preference4","Preference5","Preference6","Preference7","Preference8","Preference9",
+                "Preference10","Tactic_ID","Department","Level","Function","Message","Lead_Source",
+                "Lead_Source_Detail","RFP_Attachments","marketingTheme","marketingCampaign",
+                "marketingSubCampaign","Salesforce_ID"];
+    var data = { "EmailAddress": CFP_Get("EmailAddress"), "PK_Email": CFP_Get("PK_Email") };
+    for (var i = 0; i < cols.length; i++) { data[cols[i]] = CFP_Get(cols[i]); }
+    return data;
+  }
+
+  /* Put the person into one journey. A response other than 201 (Created) is written to the error log as NON-FATAL */
+  function CFP_FireJourney(eventsUrl, eventKey, headerNames, headerValues, stage) {
+    var body = { "ContactKey": CFP_Get("EmailAddress"), "EventDefinitionKey": eventKey, "Data": CFP_BuildJourneyData() };
+    var res = HTTP.Post(eventsUrl, jContentType, Stringify(body), headerNames, headerValues);
+    if (res.StatusCode != 201) {
+      var resText = "";
+      try { resText = CFP_Trunc(String(res.Response[0]), 500); } catch (eRes) {}
+      CFP_LogError(stage, "Journey entry returned HTTP " + res.StatusCode + " for event " + eventKey + " : " + resText, "ERROR_NONFATAL", res.StatusCode);
+    }
+  }
+
+  try {
+    var jMID = CFP_Get("MID_Value");   /* Marketing Cloud business unit id, set in stage 7 */
+
+    /* (a) access token - credentials were decrypted in stage 7 */
+    var jAccessToken = null;
+    var jRestUrl = null;
+    var jPayload = {
+      client_id: CFP_Get("Client_ID_DEC"),
+      client_secret: CFP_Get("Client_Secret_DEC"),
+      grant_type: "client_credentials",
+      account_id: jMID
+    };
+    var jTokenReq = HTTP.Post(CFP_Get("Authentication_Base_URI_DEC") + "/v2/token", jContentType, Stringify(jPayload));
+    if (jTokenReq.StatusCode == 200) {
+      var jTokenResp = Platform.Function.ParseJSON(jTokenReq.Response[0]);
+      jAccessToken = jTokenResp.access_token;
+      jRestUrl = jTokenResp.rest_instance_url;
+    } else {
+      /* Journeys cannot be triggered without a token. As before the page continues, but the problem is logged. */
+      CFP_LogError("JOURNEY_AUTH", "Access token request returned HTTP " + jTokenReq.StatusCode + " - journeys were not triggered", "ERROR_NONFATAL", jTokenReq.StatusCode);
+    }
+
+    if (CFP_Get("EmailAddress") !== "" && jAccessToken !== null && jAccessToken !== undefined) {
+      var jHeaderNames = ["Authorization"];
+      var jHeaderValues = ["Bearer " + jAccessToken];
+      var jEventsUrl = String(jRestUrl);
+      if (jEventsUrl.charAt(jEventsUrl.length - 1) !== "/") { jEventsUrl += "/"; }
+      jEventsUrl += "interaction/v1/events";
+
+      /* (b) DYNAMIC JOURNEYS: FormName_Event_ID_Mapping_DE maps a formName to one or more journey event ids.
+         One failing journey must not stop the others, so each one has its own try / catch. */
+      try {
+        var jMapDE = DataExtension.Init(CFP_JOURNEY_MAP_DE);
+        var jMapRows = jMapDE.Rows.Lookup(["formName"], [CFP_Get("formName")]);
+        if (jMapRows === null || jMapRows === undefined) { jMapRows = []; }
+        for (var j = 0; j < jMapRows.length; j++) {
+          try {
+            CFP_FireJourney(jEventsUrl, jMapRows[j].Event_ID, jHeaderNames, jHeaderValues, "JOURNEY_DYNAMIC");
+          } catch (eDyn) {
+            CFP_LogError("JOURNEY_DYNAMIC", eDyn, "ERROR_NONFATAL");
+          }
+        }
+      } catch (eDynInit) {
+        CFP_LogError("JOURNEY_DYNAMIC", eDynInit, "ERROR_NONFATAL");
+      }
+
+      /* (c) CENTRALIZED FORM PROCESSOR JOURNEY - event key comes from the configuration DE, never hard-coded */
+      var jCfgRows = Platform.Function.LookupRows(CFP_JOURNEY_CONFIG_DE, "MID", jMID);
+      var jCfpKey = "";
+      if (jCfgRows && jCfgRows.length > 0) {
+        jCfpKey = jCfgRows[0]["CentralizedFormProcessor_Journey"] || "";
+      }
+      if (jCfpKey !== "") {
+        CFP_FireJourney(jEventsUrl, jCfpKey, jHeaderNames, jHeaderValues, "JOURNEY_CFP");
+      } else {
+        CFP_LogError("JOURNEY_CFP", "No CentralizedFormProcessor_Journey event key found in " + CFP_JOURNEY_CONFIG_DE + " for MID " + jMID + " - journey was not triggered", "ERROR_NONFATAL");
+      }
+    }
+  } catch (eJourney) {
+    CFP_Fail("JOURNEY_PROCESSING", eJourney);
+  }
+</script>
+
+<script runat="server">
+  /* ========================================================================================
+     STAGE 9 - CONSENT SAFETY NET (GEE-18206 / INC4220770) - logic unchanged
+     For a Lead, read the consent status of its IFD record once more and set "Opt In" if it is not.
+     Needed because the IFD of a brand-new Lead may not have existed yet when stage 4 ran.
+     ======================================================================================== */
+  try {
+</script>
+%%[
+  /* Proceed only if a Salesforce Id is present */
+  IF NOT EMPTY(@Salesforce_ID) THEN
+
+    /* Retrieve the IFD record Id and its current consent status */
+    SET @firmDetailsRecords = RetrieveSalesforceObjects("KPMG_Individual_Firm_Details__c", "Id, KPMG_Consent_Status__c", "KPMG_LeadId__c", "=", @Salesforce_ID)
+
+    IF RowCount(@firmDetailsRecords) > 0 THEN
+      SET @firmDetailsRecord = Row(@firmDetailsRecords, 1)
+      SET @firmDetailsId = Field(@firmDetailsRecord, "Id")
+      SET @currentStatus = Field(@firmDetailsRecord, "KPMG_Consent_Status__c")
+
+      /* Update the IFD consent status to "Opt In" */
+      IF @currentStatus != "Opt In" THEN
+        SET @updateResult = UpdateSingleSalesforceObject("KPMG_Individual_Firm_Details__c", @firmDetailsId, "KPMG_Consent_Status__c", "Opt In")
+      ENDIF
+    ENDIF
+
+  ENDIF
+]%%
+<script runat="server">
+  } catch (eSafety) {
+    CFP_Fail("CONSENT_SAFETY_NET", eSafety);
+  }
+</script>
+
+%%[ IF EMPTY(@confirmationPage) THEN ]%%
+{"status": "success", "message": "Record submitted successfully"}
+%%[ ELSE ]%%
+<p>Record submitted successfully. Redirecting...</p>
+
+<script>
+  window.location.replace("%%=v(@confirmationPage)=%%");
+</script>
+%%[ ENDIF ]%%

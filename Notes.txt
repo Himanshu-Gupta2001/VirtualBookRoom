@@ -1,0 +1,90 @@
+Feedback Notes
+ 
+For the code on 698 would you be able to show client a screenshot of the error record in a Error Log DE 
+throw "Lead creation did not return a valid Salesforce Id (returned: [" + Variable.GetValue("@LeadId") + "])";
+
+need a try catch In line 808 The delete function needs error handling and a try catch. We need the try catch for DeleteData function everywhere we use take reference from Global Suppression List
+
+Also Client need the comments regarding contactpoint Email
+
+if any code is removed Please make sure that it's commented out.
+This is related to ContactUs journey as remove it from the code you can put it into d. inside comments. Its an unnecessary formality without meaning. Please make sure that code work should not be changed with this unnecessary work and make only limited changes that are said by client. Please be cautious.
+
+
+Attaching the journey logic for your reference
+
+function buildJourneyData() {
+      return {
+        "EmailAddress":          EmailAddress,
+        "PK_Email":              PK_Email,
+        "Inquiry_Type":          Inquiry_Type,
+        "FirstName":             Variable.GetValue("@FirstName"),
+        "LastName":              Variable.GetValue("@LastName"),
+        "Company":               Variable.GetValue("@Company"),
+        "JobTitle":              Variable.GetValue("@Jobtitle"),
+        "Country":               Variable.GetValue("@Country"),
+        "Phone":                 Variable.GetValue("@Phone"),
+        "CID":                   Variable.GetValue("@CID"),
+        "medium":                Variable.GetValue("@medium"),
+        "MID":                   Variable.GetValue("@MID"),
+        "term":                  Variable.GetValue("@term"),
+        "Campaign":              Variable.GetValue("@Campaign"),
+        "Source":                Variable.GetValue("@Source"),
+        "content":               Variable.GetValue("@content"),
+        "db_annual_sales":       Variable.GetValue("@db_annual_sales"),
+        "db_city":               Variable.GetValue("@db_city"),
+        "db_company_name":       Variable.GetValue("@db_company_name"),
+        "db_country_name":       Variable.GetValue("@db_country_name"),
+        "db_employee_count":     Variable.GetValue("@db_employee_count"),
+        "db_industry":           Variable.GetValue("@db_industry"),
+        "db_primary_naics":      Variable.GetValue("@db_primary_naics"),
+        "db_primary_sic":        Variable.GetValue("@db_primary_sic"),
+        "db_state":              Variable.GetValue("@db_state"),
+        "db_street_address":     Variable.GetValue("@db_street_address"),
+        "db_sub_industry":       Variable.GetValue("@db_sub_industry"),
+        "db_web_site":           Variable.GetValue("@db_web_site"),
+        "db_zip":                Variable.GetValue("@db_zip"),
+        "confirmationPage":      Variable.GetValue("@confirmationPage"),
+        "formName":              Variable.GetValue("@formName"),
+        "pageURL":               Variable.GetValue("@pageURL"),
+        "Full_Page_URL":         Variable.GetValue("@Full_Page_URL"),
+        "conditionalProcessing": Variable.GetValue("@conditionalProcessing"),
+        "Preference1":           Variable.GetValue("@Preference1"),
+        "Preference2":           Variable.GetValue("@Preference2"),
+        "Preference3":           Variable.GetValue("@Preference3"),
+        "Preference4":           Variable.GetValue("@Preference4"),
+        "Preference5":           Variable.GetValue("@Preference5"),
+        "Preference6":           Variable.GetValue("@Preference6"),
+        "Preference7":           Variable.GetValue("@Preference7"),
+        "Preference8":           Variable.GetValue("@Preference8"),
+        "Preference9":           Variable.GetValue("@Preference9"),
+        "Preference10":          Variable.GetValue("@Preference10"),
+        "Tactic_ID":             Variable.GetValue("@Tactic_ID"),
+        "Department":            Variable.GetValue("@Department"),
+        "Level":                 Variable.GetValue("@Level"),
+        "Function":              Variable.GetValue("@Function"),
+        "Message":               Variable.GetValue("@Message"),
+        "Lead_Source":           Variable.GetValue("@Lead_Source"),
+        "Lead_Source_Detail":    Variable.GetValue("@Lead_Source_Detail"),
+        "RFP_Attachments":       Variable.GetValue("@RFP_Attachments"),
+        "marketingTheme":        Variable.GetValue("@marketingTheme"),
+        "marketingCampaign":     Variable.GetValue("@marketingCampaign"),
+        "marketingSubCampaign":  Variable.GetValue("@marketingSubCampaign"),
+        "Salesforce_ID":         Variable.GetValue("@Salesforce_ID")
+      };
+    }
+
+/* ---- Contact Us Journey (NoLead AND standard non-empty Inquiry_Type) ---- */
+        var contactUsBody = {
+          "ContactKey":         EmailAddress,
+          "EventDefinitionKey": ContactUsJourneyKey,
+          "Data":               buildJourneyData()
+        };
+        var contactUsFire = HTTP.Post(eventsUrl, contentType, Stringify(contactUsBody), headerNames, headerValues);
+        if (contactUsFire.StatusCode == 201) {
+          Write("Contact Us Journey: Success");
+        } else {
+          Write("Contact Us Journey Status: " + Stringify(contactUsFire.StatusCode));
+        }
+
+      } 
