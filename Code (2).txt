@@ -4,52 +4,52 @@ Platform.Load("core", "1.1.1");
 // -------------------------------------------------------------------------
 // CONFIGURATION
 // -------------------------------------------------------------------------
-var myDE = DataExtension.Init("9827D2D9-E329-405F-9EC1-51855AD68D44"); 
+var myDE = DataExtension.Init("9827D2D9-E329-405F-9EC1-51855AD68D44");
+var TEST_LIMIT = 5;   // set to 0 to process ALL rows
 
 try {
     var deRows = myDE.Rows.Retrieve();
+    var totalRows = deRows ? deRows.length : 0;
+    var maxRows = (TEST_LIMIT > 0) ? Math.min(TEST_LIMIT, totalRows) : totalRows;
 
-    Write("<h2>Execution Summary: " + (deRows ? deRows.length : 0) + " rows retrieved</h2>");
+    Write("<h2>Execution Summary: " + totalRows + " rows retrieved, processing " + maxRows + "</h2>");
     Write("<table border='1' cellpadding='6' cellspacing='0' style='border-collapse:collapse; font-family:sans-serif;'>");
     Write("<tr style='background-color:#f2f2f2;'><th>Row #</th><th>ContactKey</th><th>Trimmed Key</th><th>SF Row Count</th><th>Updated Status</th></tr>");
 
-    if (deRows && deRows.length > 0) {
-        for (var i = 0; i < 5; i++) {
-            var row = deRows[i];
-            var rawContactKey = row.ContactKey;
+    for (var i = 0; i < maxRows; i++) {
+        var row = deRows[i];
+        var rawContactKey = row.ContactKey;
 
-            if (!rawContactKey) {
-                Write("<tr><td>" + (i + 1) + "</td><td colspan='4' style='color:orange;'>Skipped: Empty ContactKey</td></tr>");
+        if (!rawContactKey) {
+            Write("<tr><td>" + (i + 1) + "</td><td colspan='4' style='color:orange;'>Skipped: Empty ContactKey</td></tr>");
+            continue;
+        }
+
+        // Clean leading/trailing spaces
+        var cleanContactKey = String(rawContactKey).replace(/^\s+|\s+$/g, "");
+
+        try {
+            // Salesforce Ids are exactly 15 or 18 characters
+            if (cleanContactKey.length != 15 && cleanContactKey.length != 18) {
+                Write("<tr><td>" + (i + 1) + "</td><td>" + rawContactKey + "</td><td>" + cleanContactKey + "</td>"
+                    + "<td colspan='2' style='color:orange;'>Skipped: not a valid 15/18 char Salesforce Id</td></tr>");
                 continue;
             }
 
-            // Clean leading/trailing spaces
-            var cleanContactKey = String(rawContactKey).replace(/^\s+|\s+$/g, "");
+            // -----------------------------------------------------------------
+            // 1. Query Salesforce directly from SSJS (no AMPscript needed)
+            // -----------------------------------------------------------------
+            var sfRows = Platform.Function.RetrieveSalesforceObjects(
+                "Contact",          // object
+                ["Id"],             // fields to return
+                "Id", "=", cleanContactKey   // filter
+            );
 
-            // -----------------------------------------------------------------
-            // 1. Safe AMPscript - Only fetch the row count
-            // -----------------------------------------------------------------
-            var amp = ""
-                + "%" + "%[\\n"
-                + "VAR @contactKey, @sfContactRows, @rowCount\\n\\n"
-                + "SET @contactKey = '" + cleanContactKey + "'\\n\\n"
-                
-                + "/* Search the Contact object */\\n"
-                + "SET @sfContactRows = RetrieveSalesforceObjects('Contact', 'Id', 'Id', '=', '0034W00002oCwUEQA0')\\n"
-                + "SET @rowCount = RowCount(@sfContactRows)\\n"
-                + "]%" + "%\\n";
-
-            // -----------------------------------------------------------------
-            // 2. Execute AMPscript safely
-            // -----------------------------------------------------------------
-            Platform.Function.TreatAsContent(amp);
-            
-            var rowCountStr = Variable.GetValue("@rowCount");
-            var rowCount = parseInt(rowCountStr, 10) || 0;
+            var rowCount = sfRows ? sfRows.length : 0;
             var isFoundBool = (rowCount > 0);
 
             // -----------------------------------------------------------------
-            // 3. Update the Data Extension
+            // 2. Update the Data Extension
             // -----------------------------------------------------------------
             myDE.Rows.Update(
                 { "Found": isFoundBool },
@@ -58,7 +58,7 @@ try {
             );
 
             // -----------------------------------------------------------------
-            // 4. Print row-level result to the screen
+            // 3. Print row-level result
             // -----------------------------------------------------------------
             var statusColor = isFoundBool ? "green" : "red";
             Write("<tr>");
@@ -68,6 +68,11 @@ try {
             Write("<td>" + rowCount + "</td>");
             Write("<td style='color:" + statusColor + "; font-weight:bold;'>" + isFoundBool + "</td>");
             Write("</tr>");
+
+        } catch (rowErr) {
+            // Show the real error for this row instead of failing silently
+            Write("<tr><td>" + (i + 1) + "</td><td>" + rawContactKey + "</td><td>" + cleanContactKey + "</td>"
+                + "<td colspan='2' style='color:red;'>Row error: " + rowErr.message + "</td></tr>");
         }
     }
 
