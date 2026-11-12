@@ -16,6 +16,13 @@ try {
     Write("<table border='1' cellpadding='6' cellspacing='0' style='border-collapse:collapse; font-family:sans-serif;'>");
     Write("<tr style='background-color:#f2f2f2;'><th>Row #</th><th>ContactKey</th><th>Trimmed Key</th><th>SF Row Count</th><th>Updated Status</th></tr>");
 
+    // AMPscript block: real newlines (\n), key comes from the @contactKey variable.
+    // "%" + "%[" is split so the server-side parser doesn't treat it as a block here.
+    var amp = "%" + "%[\n"
+            + "SET @sfContactRows = RetrieveSalesforceObjects('Contact', 'Id', 'Id', '=', @contactKey)\n"
+            + "SET @rowCount = RowCount(@sfContactRows)\n"
+            + "]%" + "%";
+
     for (var i = 0; i < maxRows; i++) {
         var row = deRows[i];
         var rawContactKey = row.ContactKey;
@@ -37,15 +44,23 @@ try {
             }
 
             // -----------------------------------------------------------------
-            // 1. Query Salesforce directly from SSJS (no AMPscript needed)
+            // 1. Pass the key into AMPscript via a variable, then run the block
             // -----------------------------------------------------------------
-            var sfRows = Platform.Function.RetrieveSalesforceObjects(
-                "Contact",          // object
-                ["Id"],             // fields to return
-                "Id", "=", cleanContactKey   // filter
-            );
+            Variable.SetValue("@contactKey", cleanContactKey);
+            Variable.SetValue("@rowCount", "");   // reset so a failed run isn't mistaken for the previous row
 
-            var rowCount = sfRows ? sfRows.length : 0;
+            var ampOutput = Platform.Function.TreatAsContent(amp);
+
+            var rowCountStr = Variable.GetValue("@rowCount");
+
+            // If @rowCount is still empty, the AMPscript failed - report it, don't write false
+            if (rowCountStr === null || rowCountStr === undefined || String(rowCountStr) === "") {
+                Write("<tr><td>" + (i + 1) + "</td><td>" + rawContactKey + "</td><td>" + cleanContactKey + "</td>"
+                    + "<td colspan='2' style='color:red;'>AMPscript did not return a row count. Output: " + ampOutput + "</td></tr>");
+                continue;
+            }
+
+            var rowCount = parseInt(rowCountStr, 10);
             var isFoundBool = (rowCount > 0);
 
             // -----------------------------------------------------------------
@@ -70,7 +85,6 @@ try {
             Write("</tr>");
 
         } catch (rowErr) {
-            // Show the real error for this row instead of failing silently
             Write("<tr><td>" + (i + 1) + "</td><td>" + rawContactKey + "</td><td>" + cleanContactKey + "</td>"
                 + "<td colspan='2' style='color:red;'>Row error: " + rowErr.message + "</td></tr>");
         }
