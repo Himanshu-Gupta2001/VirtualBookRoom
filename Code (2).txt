@@ -1,104 +1,41 @@
-<script runat="server">
-Platform.Load("core", "1.1.1");
+Please update the following thing in the RCA and solution approach document I have given you
+Add the table of contents in the document
+change the screenshot of 818 records to the 816 records.
+Remove the approval process
+Remove the appendix as well
+Nov 10 refrences check if removed or not 
 
-// -------------------------------------------------------------------------
-// CONFIGURATION
-// -------------------------------------------------------------------------
-var myDE = DataExtension.Init("9827D2D9-E329-405F-9EC1-51855AD68D44");
-var TEST_LIMIT = 5;   // set to 0 to process ALL rows
-
-try {
-    var deRows = myDE.Rows.Retrieve();
-    var totalRows = deRows ? deRows.length : 0;
-    var maxRows = (TEST_LIMIT > 0) ? Math.min(TEST_LIMIT, totalRows) : totalRows;
-
-    Write("<h2>Execution Summary: " + totalRows + " rows retrieved, processing " + maxRows + "</h2>");
-    Write("<table border='1' cellpadding='6' cellspacing='0' style='border-collapse:collapse; font-family:sans-serif;'>");
-    Write("<tr style='background-color:#f2f2f2;'><th>Row #</th><th>ContactKey</th><th>Trimmed Key</th><th>SF Row Count</th><th>Updated Status</th></tr>");
-
-    // AMPscript block: real newlines (\n), key comes from the @contactKey variable.
-    // "%" + "%[" is split so the server-side parser doesn't treat it as a block here.
-    var amp = "%" + "%[\n"
-            + "SET @sfContactRows = RetrieveSalesforceObjects('Contact', 'Id', 'Id', '=', @contactKey)\n"
-            + "SET @rowCount = RowCount(@sfContactRows)\n"
-            + "]%" + "%";
-
-    for (var i = 0; i < maxRows; i++) {
-        var row = deRows[i];
-        var rawContactKey = row.ContactKey;
-
-        if (!rawContactKey) {
-            Write("<tr><td>" + (i + 1) + "</td><td colspan='4' style='color:orange;'>Skipped: Empty ContactKey</td></tr>");
-            continue;
-        }
-
-        // Clean leading/trailing spaces
-        var cleanContactKey = String(rawContactKey).replace(/^\s+|\s+$/g, "");
-
-        try {
-            // Salesforce Ids are exactly 15 or 18 characters
-            if (cleanContactKey.length != 15 && cleanContactKey.length != 18) {
-                Write("<tr><td>" + (i + 1) + "</td><td>" + rawContactKey + "</td><td>" + cleanContactKey + "</td>"
-                    + "<td colspan='2' style='color:orange;'>Skipped: not a valid 15/18 char Salesforce Id</td></tr>");
-                continue;
-            }
-
-            // -----------------------------------------------------------------
-            // 1. Pass the key into AMPscript via a variable, then run the block
-            // -----------------------------------------------------------------
-            Variable.SetValue("@contactKey", cleanContactKey);
-            Variable.SetValue("@rowCount", "");   // reset so a failed run isn't mistaken for the previous row
-
-            var ampOutput = Platform.Function.TreatAsContent(amp);
-
-            var rowCountStr = Variable.GetValue("@rowCount");
-
-            // If @rowCount is still empty, the AMPscript failed - report it, don't write false
-            if (rowCountStr === null || rowCountStr === undefined || String(rowCountStr) === "") {
-                Write("<tr><td>" + (i + 1) + "</td><td>" + rawContactKey + "</td><td>" + cleanContactKey + "</td>"
-                    + "<td colspan='2' style='color:red;'>AMPscript did not return a row count. Output: " + ampOutput + "</td></tr>");
-                continue;
-            }
-
-            var rowCount = parseInt(rowCountStr, 10);
-            var isFoundBool = (rowCount > 0);
-
-            // -----------------------------------------------------------------
-            // 2. Update the Data Extension
-            // -----------------------------------------------------------------
-            myDE.Rows.Update(
-                { "Found": isFoundBool },
-                ["ContactKey"],
-                [rawContactKey]
-            );
-
-            // -----------------------------------------------------------------
-            // 3. Print row-level result
-            // -----------------------------------------------------------------
-            var statusColor = isFoundBool ? "green" : "red";
-            Write("<tr>");
-            Write("<td>" + (i + 1) + "</td>");
-            Write("<td>" + rawContactKey + "</td>");
-            Write("<td>" + cleanContactKey + "</td>");
-            Write("<td>" + rowCount + "</td>");
-            Write("<td style='color:" + statusColor + "; font-weight:bold;'>" + isFoundBool + "</td>");
-            Write("</tr>");
-
-        } catch (rowErr) {
-            Write("<tr><td>" + (i + 1) + "</td><td>" + rawContactKey + "</td><td>" + cleanContactKey + "</td>"
-                + "<td colspan='2' style='color:red;'>Row error: " + rowErr.message + "</td></tr>");
-        }
-    }
-
-    Write("</table>");
-
-} catch (err) {
-    Write("<div style='color:red; font-family:sans-serif;'>");
-    Write("<h3>Execution Error:</h3>");
-    Write("<p><strong>Message:</strong> " + err.message + "</p>");
-    if (err.description) {
-        Write("<p><strong>Description:</strong> " + err.description + "</p>");
-    }
-    Write("</div>");
-}
-</script>
+1. Create a new field in the existing orphan DE (Contacts without Channel Addresses) with the name RecordEntryDate.
+2. Update the 8th query by including the ID check alongwith _ContactKey check.
+ SELECT
+    NEWID()            AS GUID,
+    c.ContactID        AS SubscriberID,
+    c.ContactKey       AS EmailAddress,
+    c.ContactKey       AS SubscriberKey,
+    'Contact Orphans'  AS Origin,
+    1                  AS Counter,
+    NULL               AS Status, 
+    'Y'                AS Active
+FROM [Contacts without Channel Addresses] AS c
+WHERE c.ContactKey LIKE '003%' 
+  AND NOT EXISTS (
+      SELECT 1 
+      FROM [Contact_Salesforce_5] AS sc 
+      WHERE sc.[_ContactKey] = c.ContactKey 
+         OR sc.ID = c.ContactKey
+  )
+Additionally-
+ 
+we can create 2 new automations -
+ 
+1. one before and one after contact deletion
+Before-
+ 
+Before we run the Monthly contact deletion make sure to run the new automation that will be created using the below steps- 
+1. When the records are added to the orphan DE with 003 as ID, check them in sales cloud using script activity if they exist or not.(retrieveSalesforceobject)
+2. If they exist, we will not delete the contact record from all contacts and store them in exclusion DE with Overwrite which can be excluded in 8th query 
+3. If they don't exists then the contact records will be deleted from all contacts.
+ 
+After - 
+1. Check the deleted record in archive DE joining with sync DE, if only the required records are deleted.
+2. If any discrepancy found, a notification will be send to the mentioned email address.
