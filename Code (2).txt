@@ -37,5 +37,5 @@ Before we run the Monthly contact deletion make sure to run the new automation t
 3. If they don't exists then the contact records will be deleted from all contacts.
  
 After - 
-1. Check the deleted record in archive DE joining with sync DE, if only the required records are deleted.
+1. Check the deleted record in archive DE joining with sync DE, if valid records are not deleted.
 2. If any discrepancy found, a notification will be send to the mentioned email address.
